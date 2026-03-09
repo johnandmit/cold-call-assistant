@@ -118,13 +118,13 @@ export default function CallScreen() {
   useEffect(() => {
     if (!callActive) return;
     const settings = getSettings();
-    if (!settings.groqApiKey) return;
+    if (!settings.geminiApiKey) return;
     const rate = (settings.suggestionRefreshRate || 10) * 1000;
 
     const fetchAI = async () => {
       if (!transcriptAccRef.current.trim()) return;
       try {
-        const cards = await fetchSuggestions(settings.groqApiKey, transcriptAccRef.current, settings.salesScript);
+        const cards = await fetchSuggestions(settings.geminiApiKey, transcriptAccRef.current, settings.salesScript);
         setSuggestions(cards);
         setSuggestionsError('');
       } catch {
