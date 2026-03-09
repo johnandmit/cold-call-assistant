@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType } from '@/types';
 import { getSettings, addCall, updateContact } from '@/lib/storage';
-import { fetchSuggestions } from '@/lib/groq';
+import { fetchSuggestions } from '@/lib/gemini';
 import { Phone, X, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
