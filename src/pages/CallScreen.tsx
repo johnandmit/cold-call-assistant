@@ -256,9 +256,9 @@ export default function CallScreen() {
         {/* Suggestions */}
         <div className="w-[35%] flex flex-col p-4 gap-3 overflow-y-auto">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">AI Suggestions</h3>
-          {!getSettings().groqApiKey ? (
+          {!getSettings().geminiApiKey ? (
             <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-              Add your Groq API key in Settings to enable AI suggestions
+              Add your Gemini API key in Settings to enable AI suggestions
             </div>
           ) : suggestionsError ? (
             <div className="glass-card p-4 text-center text-sm text-warning">{suggestionsError}</div>
