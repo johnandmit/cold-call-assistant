@@ -34,7 +34,7 @@ export interface Call {
 }
 
 export interface Settings {
-  groqApiKey: string;
+  geminiApiKey: string;
   salesScript: string;
   schedule: ScheduleEntry[];
   driveConnected: boolean;
