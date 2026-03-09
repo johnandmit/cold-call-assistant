@@ -59,23 +59,23 @@ export default function SettingsPage() {
           />
         </section>
 
-        {/* Groq API Key */}
+        {/* Gemini API Key */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <Key className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Groq API Key</h2>
+            <h2 className="font-semibold">Gemini API Key</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">
             Get a free API key at{' '}
-            <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-              console.groq.com <ExternalLink className="w-3 h-3" />
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+              aistudio.google.com <ExternalLink className="w-3 h-3" />
             </a>
           </p>
           <Input
             type="password"
-            value={settings.groqApiKey}
-            onChange={e => update({ groqApiKey: e.target.value })}
-            placeholder="gsk_..."
+            value={settings.geminiApiKey}
+            onChange={e => update({ geminiApiKey: e.target.value })}
+            placeholder="AIza..."
             className="bg-input border-border font-mono text-sm"
           />
         </section>

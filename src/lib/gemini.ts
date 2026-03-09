@@ -1,6 +1,6 @@
 import { SuggestionCard } from '@/types';
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
 export async function fetchSuggestions(
   apiKey: string,
@@ -15,14 +15,14 @@ export async function fetchSuggestions(
 
   const userMessage = `Sales Context:\n${salesScript || 'No script provided.'}\n\nLive Transcript (last 500 words):\n${last500Words}`;
 
-  const res = await fetch(GROQ_URL, {
+  const res = await fetch(GEMINI_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: 'gemini-2.5-flash',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
@@ -32,7 +32,7 @@ export async function fetchSuggestions(
     }),
   });
 
-  if (!res.ok) throw new Error(`Groq API error: ${res.status}`);
+  if (!res.ok) throw new Error(`Gemini API error: ${res.status}`);
 
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content || '';

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType } from '@/types';
 import { getSettings, addCall, updateContact } from '@/lib/storage';
-import { fetchSuggestions } from '@/lib/groq';
+import { fetchSuggestions } from '@/lib/gemini';
 import { Phone, X, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -118,13 +118,13 @@ export default function CallScreen() {
   useEffect(() => {
     if (!callActive) return;
     const settings = getSettings();
-    if (!settings.groqApiKey) return;
+    if (!settings.geminiApiKey) return;
     const rate = (settings.suggestionRefreshRate || 10) * 1000;
 
     const fetchAI = async () => {
       if (!transcriptAccRef.current.trim()) return;
       try {
-        const cards = await fetchSuggestions(settings.groqApiKey, transcriptAccRef.current, settings.salesScript);
+        const cards = await fetchSuggestions(settings.geminiApiKey, transcriptAccRef.current, settings.salesScript);
         setSuggestions(cards);
         setSuggestionsError('');
       } catch {
@@ -256,9 +256,9 @@ export default function CallScreen() {
         {/* Suggestions */}
         <div className="w-[35%] flex flex-col p-4 gap-3 overflow-y-auto">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">AI Suggestions</h3>
-          {!getSettings().groqApiKey ? (
+          {!getSettings().geminiApiKey ? (
             <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-              Add your Groq API key in Settings to enable AI suggestions
+              Add your Gemini API key in Settings to enable AI suggestions
             </div>
           ) : suggestionsError ? (
             <div className="glass-card p-4 text-center text-sm text-warning">{suggestionsError}</div>

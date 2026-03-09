@@ -34,7 +34,7 @@ export interface Call {
 }
 
 export interface Settings {
-  groqApiKey: string;
+  geminiApiKey: string;
   salesScript: string;
   schedule: ScheduleEntry[];
   driveConnected: boolean;
@@ -71,7 +71,7 @@ export interface ColumnMapping {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  groqApiKey: '',
+  geminiApiKey: '',
   salesScript: '',
   schedule: [
     { day: 'Monday', startTime: '09:00', endTime: '17:00' },
