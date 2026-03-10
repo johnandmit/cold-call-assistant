@@ -202,6 +202,12 @@ export default function CallQueue() {
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm truncate">{contact.name}</span>
                 {contact.called && <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Called</span>}
+                {!contact.called && isCurrentlyOpen(contact.opening_hours) && (
+                  <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Open Now</span>
+                )}
+                {!contact.called && contact.opening_hours && !isCurrentlyOpen(contact.opening_hours) && (
+                  <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Closed</span>
+                )}
               </div>
               <span className="text-xs text-muted-foreground font-mono">{contact.phone}</span>
             </div>
