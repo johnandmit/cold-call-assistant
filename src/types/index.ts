@@ -41,6 +41,7 @@ export interface Settings {
   driveToken: string;
   driveEmail: string;
   suggestionRefreshRate: number;
+  recordingSaveMode: 'local' | 'drive' | 'both';
 }
 
 export interface ScheduleEntry {
@@ -58,7 +59,7 @@ export interface SuggestionCard {
 export const TARGET_FIELDS = [
   'name', 'phone', 'address', 'website', 'google_maps_url',
   'rating', 'review_count', 'conversion_confidence_score',
-  'outreach_tier', 'average_urgency', 'opening_hours',
+  'outreach_tier', 'average_urgency', 'opening_hours', 'called',
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];
@@ -84,4 +85,5 @@ export const DEFAULT_SETTINGS: Settings = {
   driveToken: '',
   driveEmail: '',
   suggestionRefreshRate: 10,
+  recordingSaveMode: 'local',
 };

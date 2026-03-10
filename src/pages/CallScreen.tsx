@@ -85,7 +85,6 @@ export default function CallScreen() {
     };
   }, []);
 
-  // Restart recognition reference to callActive
   useEffect(() => {
     if (!callActive && recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
@@ -133,8 +132,7 @@ export default function CallScreen() {
     };
 
     const id = setInterval(fetchAI, rate);
-    // Fetch once after initial delay
-    const initialTimeout = setTimeout(fetchAI, 5000);
+    const initialTimeout = setTimeout(fetchAI, 3000);
     return () => { clearInterval(id); clearTimeout(initialTimeout); };
   }, [callActive]);
 
@@ -145,7 +143,7 @@ export default function CallScreen() {
     setShowPostCall(true);
   }, []);
 
-  const handlePostCallDone = (notes: string, actions: string[]) => {
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string) => {
     if (contact) {
       const callId = v4();
       const now = new Date().toISOString();
@@ -170,24 +168,27 @@ export default function CallScreen() {
         call_date: now,
         notes: notes || contact.notes,
         not_interested: actions.includes('not_interested'),
-        follow_up_date: '', // handled in modal
+        follow_up_date: followUpDate || '',
       });
     }
-    navigate('/');
-  };
 
-  // Download recording
-  useEffect(() => {
+    // Handle recording save based on settings
+    const settings = getSettings();
     if (recordingBlob && contact) {
       const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.webm`;
-      const url = URL.createObjectURL(recordingBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      if (settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both') {
+        const url = URL.createObjectURL(recordingBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      // Drive upload would happen here when connected
     }
-  }, [recordingBlob]);
+
+    navigate('/');
+  };
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 

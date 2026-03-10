@@ -16,14 +16,17 @@ const FIELD_ALIASES: Record<TargetField, string[]> = {
   outreach_tier: ['outreachtier', 'tier', 'priority', 'prioritytier'],
   average_urgency: ['averageurgency', 'avgurgency', 'urgency'],
   opening_hours: ['openinghours', 'hours', 'businesshours', 'operatinghours', 'workinghours'],
+  called: ['called', 'contacted', 'reached', 'calledstatus'],
 };
 
+// Only auto-detect with HIGH confidence (exact or very close match)
 export function autoDetectMappings(csvColumns: string[]): ColumnMapping[] {
   return TARGET_FIELDS.map(field => {
     const aliases = FIELD_ALIASES[field];
     const match = csvColumns.find(col => {
       const norm = normalize(col);
-      return aliases.some(a => norm === a || norm.includes(a) || a.includes(norm));
+      // Only exact alias matches — no fuzzy includes
+      return aliases.some(a => norm === a);
     });
     return {
       targetField: field,
@@ -42,6 +45,15 @@ export function mapRowToContact(row: Record<string, any>, mappings: ColumnMappin
     }
   }
   return result;
+}
+
+/** Check if a CSV "called" value indicates the lead was called */
+export function parseCalled(value: any): boolean {
+  if (!value && value !== 0) return false;
+  const s = String(value).trim().toLowerCase();
+  if (!s || s === '0' || s === 'false' || s === 'no' || s === 'n') return false;
+  // Any other text (yes, y, true, notes, dates, etc.) = called
+  return true;
 }
 
 export function levenshtein(a: string, b: string): number {

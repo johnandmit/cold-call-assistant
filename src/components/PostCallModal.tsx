@@ -3,21 +3,28 @@ import { Contact } from '@/types';
 import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Check, Copy, Download, Upload, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Check, Copy, Download, CalendarIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
 
 interface Props {
   contact: Contact;
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[]) => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string) => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
   const [notes, setNotes] = useState('');
   const [actions, setActions] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
+  const [followUpTime, setFollowUpTime] = useState('09:00');
   const settings = getSettings();
 
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -40,7 +47,14 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   };
 
   const handleDone = () => {
-    onDone(notes, Array.from(actions));
+    let followUpISO = '';
+    if (actions.has('follow_up') && followUpDate) {
+      const [h, m] = followUpTime.split(':').map(Number);
+      const d = new Date(followUpDate);
+      d.setHours(h, m, 0, 0);
+      followUpISO = d.toISOString();
+    }
+    onDone(notes, Array.from(actions), followUpISO);
   };
 
   return (
@@ -53,9 +67,11 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
         <div className="glass-card p-3 mb-4">
           <div className="flex items-center gap-2 text-sm">
             <Download className="w-4 h-4 text-success" />
-            <span className="text-success">✓ Recording downloaded locally</span>
+            <span className="text-success">
+              {settings.recordingSaveMode === 'drive' ? '✓ Recording will upload to Drive' : '✓ Recording saved'}
+            </span>
           </div>
-          {!settings.driveConnected && (
+          {settings.recordingSaveMode === 'local' && !settings.driveConnected && (
             <p className="text-xs text-muted-foreground mt-1 ml-6">Connect Drive in Settings to auto-upload</p>
           )}
         </div>
@@ -98,9 +114,49 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <span className="text-sm font-medium">Mark as Not Interested</span>
           </label>
 
+          <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('follow_up')} onChange={() => toggleAction('follow_up')} className="mt-0.5 accent-primary" />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Schedule Follow-up</span>
+              {actions.has('follow_up') && (
+                <div className="mt-3 flex items-center gap-2 animate-fade-in">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs h-8", !followUpDate && "text-muted-foreground")}>
+                        <CalendarIcon className="w-3 h-3" />
+                        {followUpDate ? format(followUpDate, 'PPP') : 'Pick date'}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={followUpDate}
+                        onSelect={setFollowUpDate}
+                        disabled={(d) => d < new Date()}
+                        initialFocus
+                        className={cn("p-3 pointer-events-auto")}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Input
+                    type="time"
+                    value={followUpTime}
+                    onChange={e => setFollowUpTime(e.target.value)}
+                    className="w-28 h-8 text-xs bg-input border-border"
+                  />
+                </div>
+              )}
+            </div>
+          </label>
+
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('follow_up')} onChange={() => toggleAction('follow_up')} className="accent-primary" />
-            <span className="text-sm font-medium">Schedule Follow-up</span>
+            <input type="checkbox" checked={actions.has('send_proposal')} onChange={() => toggleAction('send_proposal')} className="accent-primary" />
+            <span className="text-sm font-medium">Send Proposal / Info</span>
+          </label>
+
+          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('warm_lead')} onChange={() => toggleAction('warm_lead')} className="accent-primary" />
+            <span className="text-sm font-medium">Mark as Warm Lead</span>
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
