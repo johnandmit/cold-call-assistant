@@ -102,6 +102,36 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Recording Save Mode */}
+        <section className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <HardDrive className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">Recording Save Mode</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">Choose where call recordings are saved.</p>
+          <div className="space-y-2">
+            {([
+              { value: 'local' as const, label: 'Save locally (download)', desc: 'Downloads recording to your device after each call' },
+              { value: 'drive' as const, label: 'Upload to Google Drive only', desc: 'Uploads to Drive, skips local download (requires Drive connection)' },
+              { value: 'both' as const, label: 'Both (local + Drive)', desc: 'Downloads locally and uploads to Drive' },
+            ]).map(opt => (
+              <label key={opt.value} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${settings.recordingSaveMode === opt.value ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/20'}`}>
+                <input
+                  type="radio"
+                  name="recordingSaveMode"
+                  checked={settings.recordingSaveMode === opt.value}
+                  onChange={() => update({ recordingSaveMode: opt.value })}
+                  className="mt-0.5 accent-primary"
+                />
+                <div>
+                  <span className="text-sm font-medium">{opt.label}</span>
+                  <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </section>
+
         {/* Call Schedule */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
