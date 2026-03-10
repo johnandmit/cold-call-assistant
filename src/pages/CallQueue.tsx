@@ -6,15 +6,108 @@ import ContactHeroCard from '@/components/ContactHeroCard';
 import { FileSpreadsheet, Phone, Globe, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
+const DAY_NAMES: Record<string, number> = {
+  sunday: 0, sun: 0, su: 0,
+  monday: 1, mon: 1, mo: 1,
+  tuesday: 2, tue: 2, tu: 2, tues: 2,
+  wednesday: 3, wed: 3, we: 3,
+  thursday: 4, thu: 4, th: 4, thurs: 4,
+  friday: 5, fri: 5, fr: 5,
+  saturday: 6, sat: 6, sa: 6,
+};
+
+function parseTime(timeStr: string): number | null {
+  const s = timeStr.trim().toLowerCase();
+  // Handle "closed"
+  if (s === 'closed') return null;
+  
+  // Match patterns like "9:00 AM", "17:00", "9AM", "5:30pm", "9:00\u202fAM"
+  const match = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(?:\u202f)?\s*(am|pm)?$/i);
+  if (!match) return null;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  const period = match[3]?.toLowerCase();
+  
+  if (period === 'pm' && hours !== 12) hours += 12;
+  if (period === 'am' && hours === 12) hours = 0;
+  
+  return hours * 60 + minutes;
+}
+
 function isCurrentlyOpen(hours: string): boolean {
-  if (!hours) return false;
-  // Simple heuristic: if hours string contains current day abbreviation
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  if (!hours || !hours.trim()) return false;
+  
   const now = new Date();
-  const today = days[now.getDay()];
-  const h = now.getHours();
-  // Very basic: if the string mentions today and it's business hours
-  return hours.toLowerCase().includes(today.toLowerCase()) || (h >= 9 && h < 17);
+  const currentDay = now.getDay(); // 0=Sun
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  // Common formats from Google Maps:
+  // "Monday: 9:00 AM – 5:00 PM, Tuesday: 9:00 AM – 5:00 PM, ..."
+  // "Mon-Fri 9:00-17:00, Sat 10:00-14:00"
+  // "Monday: Closed, Tuesday: 8:00 AM – 6:00 PM"
+  // Also handles semicolons or pipe separators
+  
+  const entries = hours.split(/[,;|]/).map(e => e.trim()).filter(Boolean);
+  
+  for (const entry of entries) {
+    // Try "Day: Time – Time" format
+    const dayTimeMatch = entry.match(/^([a-zA-Z]+(?:\s*[-–—]\s*[a-zA-Z]+)?)\s*[:]\s*(.+)$/);
+    if (dayTimeMatch) {
+      const dayPart = dayTimeMatch[1].trim().toLowerCase();
+      const timePart = dayTimeMatch[2].trim();
+      
+      if (!isDayMatch(dayPart, currentDay)) continue;
+      if (timePart.toLowerCase() === 'closed') return false;
+      if (timePart.toLowerCase().includes('24 hour') || timePart.toLowerCase().includes('open 24')) return true;
+      
+      const timeRange = parseTimeRange(timePart);
+      if (timeRange && currentMinutes >= timeRange.start && currentMinutes <= timeRange.end) return true;
+      continue;
+    }
+    
+    // Try "Day Time-Time" without colon
+    const noColonMatch = entry.match(/^([a-zA-Z]+(?:\s*[-–—]\s*[a-zA-Z]+)?)\s+(.+)$/);
+    if (noColonMatch) {
+      const dayPart = noColonMatch[1].trim().toLowerCase();
+      const timePart = noColonMatch[2].trim();
+      
+      if (!isDayMatch(dayPart, currentDay)) continue;
+      if (timePart.toLowerCase() === 'closed') return false;
+      
+      const timeRange = parseTimeRange(timePart);
+      if (timeRange && currentMinutes >= timeRange.start && currentMinutes <= timeRange.end) return true;
+    }
+  }
+  
+  return false;
+}
+
+function isDayMatch(dayPart: string, currentDay: number): boolean {
+  // Handle ranges like "mon-fri" or "monday-friday"
+  const rangeParts = dayPart.split(/\s*[-–—]\s*/);
+  if (rangeParts.length === 2) {
+    const startDay = DAY_NAMES[rangeParts[0].trim()];
+    const endDay = DAY_NAMES[rangeParts[1].trim()];
+    if (startDay !== undefined && endDay !== undefined) {
+      if (startDay <= endDay) {
+        return currentDay >= startDay && currentDay <= endDay;
+      }
+      // Wraps around (e.g., Fri-Mon)
+      return currentDay >= startDay || currentDay <= endDay;
+    }
+  }
+  // Single day
+  return DAY_NAMES[dayPart.trim()] === currentDay;
+}
+
+function parseTimeRange(timePart: string): { start: number; end: number } | null {
+  const parts = timePart.split(/\s*[-–—to]+\s*/i);
+  if (parts.length < 2) return null;
+  const start = parseTime(parts[0]);
+  const end = parseTime(parts[parts.length - 1]);
+  if (start === null || end === null) return null;
+  return { start, end };
 }
 
 export default function CallQueue() {
@@ -109,6 +202,12 @@ export default function CallQueue() {
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm truncate">{contact.name}</span>
                 {contact.called && <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Called</span>}
+                {!contact.called && isCurrentlyOpen(contact.opening_hours) && (
+                  <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Open Now</span>
+                )}
+                {!contact.called && contact.opening_hours && !isCurrentlyOpen(contact.opening_hours) && (
+                  <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Closed</span>
+                )}
               </div>
               <span className="text-xs text-muted-foreground font-mono">{contact.phone}</span>
             </div>
