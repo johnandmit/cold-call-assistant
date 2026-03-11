@@ -41,6 +41,8 @@ export default function CsvManager() {
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartIdx, setDragStartIdx] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback((files: FileList | null) => {
