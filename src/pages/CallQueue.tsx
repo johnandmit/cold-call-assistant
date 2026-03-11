@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Contact } from '@/types';
-import { getContacts } from '@/lib/storage';
+import { getContacts, saveContacts } from '@/lib/storage';
 import ContactHeroCard from '@/components/ContactHeroCard';
 import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 
 const DAY_NAMES: Record<string, number> = {
@@ -93,10 +94,23 @@ export default function CallQueue() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showOpenOnly, setShowOpenOnly] = useState(false);
 
-  useEffect(() => {
+  const refreshContacts = useCallback(() => {
     setContacts(getContacts());
   }, []);
+
+  useEffect(() => {
+    refreshContacts();
+    // Refresh when returning from call screen or when window regains focus
+    const onFocus = () => refreshContacts();
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onFocus);
+    };
+  }, [refreshContacts]);
 
   // Follow-ups due
   const followUps = useMemo(() => {
@@ -108,6 +122,9 @@ export default function CallQueue() {
     if (search) {
       const s = search.toLowerCase();
       filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
+    }
+    if (showOpenOnly) {
+      filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
     }
 
     return [...filtered].sort((a, b) => {
@@ -130,7 +147,7 @@ export default function CallQueue() {
       // Conversion score descending
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
-  }, [contacts, search]);
+  }, [contacts, search, showOpenOnly]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
@@ -197,8 +214,8 @@ export default function CallQueue() {
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search contacts..."
@@ -207,6 +224,15 @@ export default function CallQueue() {
             className="pl-9 bg-input border-border"
           />
         </div>
+        <Button
+          variant={showOpenOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setShowOpenOnly(!showOpenOnly)}
+          className="gap-1.5 shrink-0"
+        >
+          <Clock className="w-3.5 h-3.5" />
+          {showOpenOnly ? 'Open Only' : 'All Businesses'}
+        </Button>
       </div>
 
       <div className="space-y-1">
