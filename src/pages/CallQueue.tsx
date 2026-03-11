@@ -147,6 +147,15 @@ export default function CallQueue() {
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
     }
+    // Apply filters
+    if (filters.minRating > 0) filtered = filtered.filter(c => c.rating >= filters.minRating);
+    if (filters.maxTier < 3) filtered = filtered.filter(c => (c.outreach_tier || 3) <= filters.maxTier);
+    if (filters.minScore > 0) filtered = filtered.filter(c => c.conversion_confidence_score >= filters.minScore);
+    if (filters.urgency !== 'all') filtered = filtered.filter(c => c.average_urgency === filters.urgency);
+    if (filters.hasWebsite === 'yes') filtered = filtered.filter(c => !!c.website);
+    if (filters.hasWebsite === 'no') filtered = filtered.filter(c => !c.website);
+    if (filters.calledStatus === 'yes') filtered = filtered.filter(c => c.called);
+    if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
     return [...filtered].sort((a, b) => {
       // Follow-ups due first
