@@ -43,6 +43,7 @@ export default function CsvManager() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartIdx, setDragStartIdx] = useState<number | null>(null);
+  const [dragMode, setDragMode] = useState<'select' | 'deselect'>('select');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback((files: FileList | null) => {
