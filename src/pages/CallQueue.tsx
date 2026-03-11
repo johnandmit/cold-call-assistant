@@ -263,8 +263,66 @@ export default function CallQueue() {
           <Clock className="w-3.5 h-3.5" />
           {showOpenOnly ? 'Open Only' : 'All Businesses'}
         </Button>
+        <Button
+          variant={showFilters ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="gap-1.5 shrink-0"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Filters{hasActiveFilters ? ' •' : ''}
+        </Button>
       </div>
 
+      {/* Filters panel */}
+      {showFilters && (
+        <div className="glass-card p-4 mb-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Min Rating</label>
+            <Input type="number" min={0} max={5} step={0.5} value={filters.minRating} onChange={e => setFilters(f => ({ ...f, minRating: Number(e.target.value) }))} className="bg-input border-border text-sm h-8" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Max Tier</label>
+            <select value={filters.maxTier} onChange={e => setFilters(f => ({ ...f, maxTier: Number(e.target.value) }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value={1}>Tier 1 only</option>
+              <option value={2}>Tier 1-2</option>
+              <option value={3}>All tiers</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Min Score</label>
+            <Input type="number" min={0} max={100} value={filters.minScore} onChange={e => setFilters(f => ({ ...f, minScore: Number(e.target.value) }))} className="bg-input border-border text-sm h-8" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Urgency</label>
+            <select value={filters.urgency} onChange={e => setFilters(f => ({ ...f, urgency: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Website</label>
+            <select value={filters.hasWebsite} onChange={e => setFilters(f => ({ ...f, hasWebsite: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="yes">Has website</option>
+              <option value="no">No website</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Called</label>
+            <select value={filters.calledStatus} onChange={e => setFilters(f => ({ ...f, calledStatus: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="yes">Called</option>
+              <option value="no">Not called</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <Button variant="ghost" size="sm" onClick={() => setFilters(DEFAULT_QUEUE_FILTERS)} className="text-xs">Reset</Button>
+          </div>
+        </div>
+      )}
       <div className="space-y-1">
         {sortedContacts.map(contact => {
           const isOpen = isCurrentlyOpen(contact.opening_hours);
