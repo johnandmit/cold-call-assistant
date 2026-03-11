@@ -118,6 +118,9 @@ export default function CallQueue() {
       const s = search.toLowerCase();
       filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
     }
+    if (showOpenOnly) {
+      filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
+    }
 
     return [...filtered].sort((a, b) => {
       // Follow-ups due first
