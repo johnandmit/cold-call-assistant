@@ -93,10 +93,19 @@ export default function CallQueue() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showOpenOnly, setShowOpenOnly] = useState(false);
 
-  useEffect(() => {
+  const refreshContacts = useCallback(() => {
     setContacts(getContacts());
   }, []);
+
+  useEffect(() => {
+    refreshContacts();
+    // Listen for storage changes (e.g. from PostCallModal marking not_interested)
+    const onStorage = () => refreshContacts();
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [refreshContacts]);
 
   // Follow-ups due
   const followUps = useMemo(() => {
