@@ -163,6 +163,39 @@ export default function CsvManager() {
     }
   };
 
+  // Drag-to-select handlers
+  const handleRowMouseDown = (idx: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return; // left click only
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStartIdx(idx);
+    const id = filtered[idx]?.id;
+    if (id) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    }
+  };
+
+  const handleRowMouseEnter = (idx: number) => {
+    if (!isDragging || dragStartIdx === null) return;
+    const start = Math.min(dragStartIdx, idx);
+    const end = Math.max(dragStartIdx, idx);
+    const newSelected = new Set(selectedIds);
+    for (let i = start; i <= end; i++) {
+      const id = filtered[i]?.id;
+      if (id) newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setDragStartIdx(null);
+  };
+
   const deleteSelected = () => {
     const updated = contacts.filter(c => !selectedIds.has(c.id));
     saveContacts(updated);
