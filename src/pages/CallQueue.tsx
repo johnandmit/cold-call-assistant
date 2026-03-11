@@ -102,10 +102,14 @@ export default function CallQueue() {
 
   useEffect(() => {
     refreshContacts();
-    // Listen for storage changes (e.g. from PostCallModal marking not_interested)
-    const onStorage = () => refreshContacts();
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    // Refresh when returning from call screen or when window regains focus
+    const onFocus = () => refreshContacts();
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onFocus);
+    };
   }, [refreshContacts]);
 
   // Follow-ups due
