@@ -43,6 +43,7 @@ export default function CsvManager() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartIdx, setDragStartIdx] = useState<number | null>(null);
+  const [dragMode, setDragMode] = useState<'select' | 'deselect'>('select');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback((files: FileList | null) => {
@@ -163,32 +164,41 @@ export default function CsvManager() {
     }
   };
 
-  // Drag-to-select handlers
+  // Drag-to-select handlers — click row toggles, drag extends
   const handleRowMouseDown = (idx: number, e: React.MouseEvent) => {
-    if (e.button !== 0) return; // left click only
+    if (e.button !== 0) return;
+    // Don't interfere with buttons/inputs inside rows
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('input') || target.closest('textarea')) return;
     e.preventDefault();
+    const id = filtered[idx]?.id;
+    if (!id) return;
+    const wasSelected = selectedIds.has(id);
+    const mode = wasSelected ? 'deselect' : 'select';
     setIsDragging(true);
     setDragStartIdx(idx);
-    const id = filtered[idx]?.id;
-    if (id) {
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
-    }
+    setDragMode(mode);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (mode === 'select') next.add(id); else next.delete(id);
+      return next;
+    });
   };
 
   const handleRowMouseEnter = (idx: number) => {
     if (!isDragging || dragStartIdx === null) return;
     const start = Math.min(dragStartIdx, idx);
     const end = Math.max(dragStartIdx, idx);
-    const newSelected = new Set(selectedIds);
-    for (let i = start; i <= end; i++) {
-      const id = filtered[i]?.id;
-      if (id) newSelected.add(id);
-    }
-    setSelectedIds(newSelected);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      for (let i = start; i <= end; i++) {
+        const id = filtered[i]?.id;
+        if (id) {
+          if (dragMode === 'select') next.add(id); else next.delete(id);
+        }
+      }
+      return next;
+    });
   };
 
   const handleMouseUp = () => {

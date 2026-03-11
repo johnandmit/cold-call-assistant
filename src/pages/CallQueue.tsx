@@ -3,10 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { Contact } from '@/types';
 import { getContacts, saveContacts } from '@/lib/storage';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, Filter, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+
+type QueueFilterState = {
+  minRating: number;
+  maxTier: number;
+  minScore: number;
+  urgency: string;
+  hasWebsite: string;
+  calledStatus: string;
+};
+
+const DEFAULT_QUEUE_FILTERS: QueueFilterState = {
+  minRating: 0,
+  maxTier: 3,
+  minScore: 0,
+  urgency: 'all',
+  hasWebsite: 'all',
+  calledStatus: 'all',
+};
 
 const DAY_NAMES: Record<string, number> = {
   sunday: 0, sun: 0, su: 0,
@@ -95,6 +113,9 @@ export default function CallQueue() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showOpenOnly, setShowOpenOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_QUEUE_FILTERS);
+  const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
 
   const refreshContacts = useCallback(() => {
     setContacts(getContacts());
@@ -126,6 +147,15 @@ export default function CallQueue() {
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
     }
+    // Apply filters
+    if (filters.minRating > 0) filtered = filtered.filter(c => c.rating >= filters.minRating);
+    if (filters.maxTier < 3) filtered = filtered.filter(c => (c.outreach_tier || 3) <= filters.maxTier);
+    if (filters.minScore > 0) filtered = filtered.filter(c => c.conversion_confidence_score >= filters.minScore);
+    if (filters.urgency !== 'all') filtered = filtered.filter(c => c.average_urgency === filters.urgency);
+    if (filters.hasWebsite === 'yes') filtered = filtered.filter(c => !!c.website);
+    if (filters.hasWebsite === 'no') filtered = filtered.filter(c => !c.website);
+    if (filters.calledStatus === 'yes') filtered = filtered.filter(c => c.called);
+    if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
     return [...filtered].sort((a, b) => {
       // Follow-ups due first
@@ -147,7 +177,7 @@ export default function CallQueue() {
       // Conversion score descending
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
-  }, [contacts, search, showOpenOnly]);
+  }, [contacts, search, showOpenOnly, filters]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
@@ -233,8 +263,66 @@ export default function CallQueue() {
           <Clock className="w-3.5 h-3.5" />
           {showOpenOnly ? 'Open Only' : 'All Businesses'}
         </Button>
+        <Button
+          variant={showFilters ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="gap-1.5 shrink-0"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Filters{hasActiveFilters ? ' •' : ''}
+        </Button>
       </div>
 
+      {/* Filters panel */}
+      {showFilters && (
+        <div className="glass-card p-4 mb-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Min Rating</label>
+            <Input type="number" min={0} max={5} step={0.5} value={filters.minRating} onChange={e => setFilters(f => ({ ...f, minRating: Number(e.target.value) }))} className="bg-input border-border text-sm h-8" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Max Tier</label>
+            <select value={filters.maxTier} onChange={e => setFilters(f => ({ ...f, maxTier: Number(e.target.value) }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value={1}>Tier 1 only</option>
+              <option value={2}>Tier 1-2</option>
+              <option value={3}>All tiers</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Min Score</label>
+            <Input type="number" min={0} max={100} value={filters.minScore} onChange={e => setFilters(f => ({ ...f, minScore: Number(e.target.value) }))} className="bg-input border-border text-sm h-8" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Urgency</label>
+            <select value={filters.urgency} onChange={e => setFilters(f => ({ ...f, urgency: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Website</label>
+            <select value={filters.hasWebsite} onChange={e => setFilters(f => ({ ...f, hasWebsite: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="yes">Has website</option>
+              <option value="no">No website</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Called</label>
+            <select value={filters.calledStatus} onChange={e => setFilters(f => ({ ...f, calledStatus: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+              <option value="all">All</option>
+              <option value="yes">Called</option>
+              <option value="no">Not called</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <Button variant="ghost" size="sm" onClick={() => setFilters(DEFAULT_QUEUE_FILTERS)} className="text-xs">Reset</Button>
+          </div>
+        </div>
+      )}
       <div className="space-y-1">
         {sortedContacts.map(contact => {
           const isOpen = isCurrentlyOpen(contact.opening_hours);
