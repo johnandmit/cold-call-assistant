@@ -209,8 +209,8 @@ export default function CallQueue() {
         </div>
       )}
 
-      <div className="mb-4">
-        <div className="relative">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search contacts..."
@@ -219,6 +219,15 @@ export default function CallQueue() {
             className="pl-9 bg-input border-border"
           />
         </div>
+        <Button
+          variant={showOpenOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setShowOpenOnly(!showOpenOnly)}
+          className="gap-1.5 shrink-0"
+        >
+          <Clock className="w-3.5 h-3.5" />
+          {showOpenOnly ? 'Open Only' : 'All Businesses'}
+        </Button>
       </div>
 
       <div className="space-y-1">
