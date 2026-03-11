@@ -3,10 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { Contact } from '@/types';
 import { getContacts, saveContacts } from '@/lib/storage';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, Filter, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+
+type QueueFilterState = {
+  minRating: number;
+  maxTier: number;
+  minScore: number;
+  urgency: string;
+  hasWebsite: string;
+  calledStatus: string;
+};
+
+const DEFAULT_QUEUE_FILTERS: QueueFilterState = {
+  minRating: 0,
+  maxTier: 3,
+  minScore: 0,
+  urgency: 'all',
+  hasWebsite: 'all',
+  calledStatus: 'all',
+};
 
 const DAY_NAMES: Record<string, number> = {
   sunday: 0, sun: 0, su: 0,
