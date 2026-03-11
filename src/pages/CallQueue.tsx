@@ -142,7 +142,7 @@ export default function CallQueue() {
       // Conversion score descending
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
-  }, [contacts, search]);
+  }, [contacts, search, showOpenOnly]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
