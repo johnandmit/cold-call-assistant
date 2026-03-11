@@ -475,13 +475,13 @@ export default function CsvManager() {
             </div>
           )}
 
-          <div className="glass-card overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="glass-card overflow-hidden" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+            <div className="overflow-x-auto select-none">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="p-3 w-8">
-                      <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} className="accent-primary" />
+                    <th className="p-3 w-12">
+                      <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} className="accent-primary w-5 h-5 cursor-pointer" />
                     </th>
                     {['Name', 'Phone', 'Rating', 'Tier', 'Score', 'Urgency', 'Website', 'Hours', 'Notes', 'Called', ''].map(h => (
                       <th key={h} className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
@@ -489,10 +489,15 @@ export default function CsvManager() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(c => (
-                    <tr key={c.id} className={`border-b border-border/50 transition-colors ${c.called ? 'bg-success/5' : ''} ${selectedIds.has(c.id) ? 'bg-primary/5' : ''}`}>
+                  {filtered.map((c, idx) => (
+                    <tr
+                      key={c.id}
+                      className={`border-b border-border/50 transition-colors cursor-pointer ${c.called ? 'bg-success/5' : ''} ${selectedIds.has(c.id) ? 'bg-primary/10' : 'hover:bg-muted/50'}`}
+                      onMouseDown={(e) => handleRowMouseDown(idx, e)}
+                      onMouseEnter={() => handleRowMouseEnter(idx)}
+                    >
                       <td className="p-3">
-                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="accent-primary" />
+                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="accent-primary w-5 h-5 cursor-pointer" />
                       </td>
                       <td className="p-3 font-medium">{c.name}</td>
                       <td className="p-3 font-mono text-xs">{c.phone}</td>
