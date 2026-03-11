@@ -113,6 +113,9 @@ export default function CallQueue() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showOpenOnly, setShowOpenOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_QUEUE_FILTERS);
+  const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
 
   const refreshContacts = useCallback(() => {
     setContacts(getContacts());
