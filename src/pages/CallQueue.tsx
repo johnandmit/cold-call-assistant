@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Contact } from '@/types';
-import { getContacts } from '@/lib/storage';
+import { getContacts, saveContacts } from '@/lib/storage';
 import ContactHeroCard from '@/components/ContactHeroCard';
 import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 
 const DAY_NAMES: Record<string, number> = {
