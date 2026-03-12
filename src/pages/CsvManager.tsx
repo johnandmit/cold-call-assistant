@@ -111,6 +111,8 @@ export default function CsvManager() {
         call_recording_drive_url: '',
         not_interested: false,
         follow_up_date: '',
+        call_outcome: '',
+        suppressed_until: '',
       };
     }).filter(c => c.name && c.phone);
 
