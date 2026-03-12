@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Phone, List, FileSpreadsheet, Settings, Zap } from 'lucide-react';
+import { List, FileSpreadsheet, Settings, Zap, BarChart3 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: List, label: 'Queue' },
   { to: '/csv', icon: FileSpreadsheet, label: 'CSV' },
+  { to: '/dashboard', icon: BarChart3, label: 'Stats' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

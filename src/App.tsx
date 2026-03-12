@@ -8,6 +8,7 @@ import CallQueue from "@/pages/CallQueue";
 import CallScreen from "@/pages/CallScreen";
 import CsvManager from "@/pages/CsvManager";
 import SettingsPage from "@/pages/Settings";
+import Dashboard from "@/pages/Dashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
             <Route path="/" element={<CallQueue />} />
             <Route path="/csv" element={<CsvManager />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/dashboard" element={<Dashboard />} />
           </Route>
           <Route path="/call" element={<CallScreen />} />
           <Route path="*" element={<NotFound />} />

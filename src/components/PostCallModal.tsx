@@ -4,7 +4,7 @@ import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Check, Copy, Download, CalendarIcon, X } from 'lucide-react';
+import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -16,7 +16,7 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string) => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean) => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
@@ -25,6 +25,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const [copied, setCopied] = useState(false);
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
+  const [keepRecording, setKeepRecording] = useState(true);
   const settings = getSettings();
 
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -34,6 +35,27 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
     setActions(prev => {
       const next = new Set(prev);
       if (next.has(action)) next.delete(action); else next.add(action);
+      // Mutually exclusive outcomes
+      if (action === 'no_answer' && next.has(action)) {
+        next.delete('phone_not_working');
+        next.delete('not_interested');
+        next.delete('revert_uncalled');
+      }
+      if (action === 'phone_not_working' && next.has(action)) {
+        next.delete('no_answer');
+        next.delete('not_interested');
+        next.delete('revert_uncalled');
+      }
+      if (action === 'not_interested' && next.has(action)) {
+        next.delete('no_answer');
+        next.delete('phone_not_working');
+        next.delete('revert_uncalled');
+      }
+      if (action === 'revert_uncalled' && next.has(action)) {
+        next.delete('no_answer');
+        next.delete('phone_not_working');
+        next.delete('not_interested');
+      }
       return next;
     });
   };
@@ -46,6 +68,16 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
     toast.success('Workflow trigger copied to clipboard');
   };
 
+  const getOutcome = (): string => {
+    if (actions.has('no_answer')) return 'no_answer';
+    if (actions.has('phone_not_working')) return 'phone_not_working';
+    if (actions.has('not_interested')) return 'not_interested';
+    if (actions.has('warm_lead')) return 'interested';
+    if (actions.has('anti_gravity')) return 'interested';
+    if (actions.has('send_proposal')) return 'interested';
+    return 'completed';
+  };
+
   const handleDone = () => {
     let followUpISO = '';
     if (actions.has('follow_up') && followUpDate) {
@@ -54,7 +86,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording);
   };
 
   return (
@@ -63,18 +95,32 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
         <h2 className="text-xl font-bold mb-1">{title}</h2>
         <p className="text-sm text-muted-foreground mb-6">Duration: {Math.floor(duration / 60)}m {duration % 60}s</p>
 
-        {/* Recording status */}
-        <div className="glass-card p-3 mb-4">
-          <div className="flex items-center gap-2 text-sm">
-            <Download className="w-4 h-4 text-success" />
-            <span className="text-success">
-              {settings.recordingSaveMode === 'drive' ? '✓ Recording will upload to Drive' : '✓ Recording saved'}
-            </span>
+        {/* Recording decision */}
+        {recordingBlob && (
+          <div className="glass-card p-3 mb-4">
+            <p className="text-sm font-medium mb-2">Recording</p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={keepRecording ? 'default' : 'outline'}
+                onClick={() => setKeepRecording(true)}
+                className="gap-1.5 text-xs flex-1"
+              >
+                <Upload className="w-3 h-3" />
+                {settings.recordingSaveMode === 'drive' ? 'Upload to Drive' : 'Save Recording'}
+              </Button>
+              <Button
+                size="sm"
+                variant={!keepRecording ? 'destructive' : 'outline'}
+                onClick={() => setKeepRecording(false)}
+                className="gap-1.5 text-xs flex-1"
+              >
+                <Trash2 className="w-3 h-3" />
+                Discard
+              </Button>
+            </div>
           </div>
-          {settings.recordingSaveMode === 'local' && !settings.driveConnected && (
-            <p className="text-xs text-muted-foreground mt-1 ml-6">Connect Drive in Settings to auto-upload</p>
-          )}
-        </div>
+        )}
 
         {/* Notes */}
         <div className="mb-4">
@@ -87,12 +133,40 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
           />
         </div>
 
-        {/* Actions */}
+        {/* Outcome Actions */}
         <div className="space-y-3 mb-6">
-          <p className="text-sm font-medium">What would you like to do?</p>
+          <p className="text-sm font-medium">Call Outcome</p>
+
+          {/* No Answer */}
+          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('no_answer')} onChange={() => toggleAction('no_answer')} className="accent-primary w-4 h-4" />
+            <PhoneMissed className="w-4 h-4 text-warning" />
+            <span className="text-sm font-medium">No Answer</span>
+            <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
+          </label>
+
+          {/* Phone Not Working */}
+          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('phone_not_working')} onChange={() => toggleAction('phone_not_working')} className="accent-primary w-4 h-4" />
+            <PhoneOff className="w-4 h-4 text-destructive" />
+            <span className="text-sm font-medium">Phone Number Not Working</span>
+            <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
+          </label>
+
+          {/* Revert to uncalled */}
+          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('revert_uncalled')} onChange={() => toggleAction('revert_uncalled')} className="accent-primary w-4 h-4" />
+            <Undo2 className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium">Revert to Uncalled</span>
+            <span className="text-xs text-muted-foreground ml-auto">Put back in queue</span>
+          </label>
+
+          <div className="border-t border-border/50 pt-3 mt-3">
+            <p className="text-sm font-medium mb-3">Post-Call Actions</p>
+          </div>
 
           <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('anti_gravity')} onChange={() => toggleAction('anti_gravity')} className="mt-0.5 accent-primary" />
+            <input type="checkbox" checked={actions.has('anti_gravity')} onChange={() => toggleAction('anti_gravity')} className="mt-0.5 accent-primary w-4 h-4" />
             <div className="flex-1">
               <span className="text-sm font-medium">Trigger Anti-Gravity website build</span>
               {actions.has('anti_gravity') && (
@@ -110,12 +184,12 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('not_interested')} onChange={() => toggleAction('not_interested')} className="accent-primary" />
+            <input type="checkbox" checked={actions.has('not_interested')} onChange={() => toggleAction('not_interested')} className="accent-primary w-4 h-4" />
             <span className="text-sm font-medium">Mark as Not Interested</span>
           </label>
 
           <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('follow_up')} onChange={() => toggleAction('follow_up')} className="mt-0.5 accent-primary" />
+            <input type="checkbox" checked={actions.has('follow_up')} onChange={() => toggleAction('follow_up')} className="mt-0.5 accent-primary w-4 h-4" />
             <div className="flex-1">
               <span className="text-sm font-medium">Schedule Follow-up</span>
               {actions.has('follow_up') && (
@@ -150,17 +224,17 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('send_proposal')} onChange={() => toggleAction('send_proposal')} className="accent-primary" />
+            <input type="checkbox" checked={actions.has('send_proposal')} onChange={() => toggleAction('send_proposal')} className="accent-primary w-4 h-4" />
             <span className="text-sm font-medium">Send Proposal / Info</span>
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('warm_lead')} onChange={() => toggleAction('warm_lead')} className="accent-primary" />
+            <input type="checkbox" checked={actions.has('warm_lead')} onChange={() => toggleAction('warm_lead')} className="accent-primary w-4 h-4" />
             <span className="text-sm font-medium">Mark as Warm Lead</span>
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('no_action')} onChange={() => toggleAction('no_action')} className="accent-primary" />
+            <input type="checkbox" checked={actions.has('no_action')} onChange={() => toggleAction('no_action')} className="accent-primary w-4 h-4" />
             <span className="text-sm font-medium">No further action</span>
           </label>
         </div>
