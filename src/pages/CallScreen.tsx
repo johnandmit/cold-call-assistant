@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Contact, SuggestionCard as SuggestionCardType } from '@/types';
+import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
 import { getSettings, addCall, updateContact } from '@/lib/storage';
 import { fetchSuggestions } from '@/lib/gemini';
-import { Phone, X, Mic } from 'lucide-react';
+import { suppressContact, recordCallOutcome } from '@/lib/session';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
 import { v4 } from '@/lib/uuid';
+import { getTodayHours } from '@/lib/hours-utils';
 
 export default function CallScreen() {
   const navigate = useNavigate();
@@ -23,13 +25,17 @@ export default function CallScreen() {
   const [showPostCall, setShowPostCall] = useState(false);
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
+  const [showBusinessInfo, setShowBusinessInfo] = useState(true);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef(Date.now());
   const transcriptAccRef = useRef('');
+  const recordingStartedRef = useRef(false);
+  const speechDetectedRef = useRef(false);
 
   // Timer
   useEffect(() => {
@@ -63,6 +69,13 @@ export default function CallScreen() {
           interim += t;
         }
       }
+
+      // Start recording on first speech detection
+      if ((final || interim) && !speechDetectedRef.current) {
+        speechDetectedRef.current = true;
+        startRecording();
+      }
+
       if (final) {
         transcriptAccRef.current += final;
         setTranscript(transcriptAccRef.current);
@@ -91,19 +104,28 @@ export default function CallScreen() {
     }
   }, [callActive]);
 
-  // MediaRecorder
+  // Get microphone access immediately but don't start recording until speech
   useEffect(() => {
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
-      const mr = new MediaRecorder(stream);
-      mediaRecorderRef.current = mr;
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setRecordingBlob(blob);
-        stream.getTracks().forEach(t => t.stop());
-      };
-      mr.start(1000);
+      mediaStreamRef.current = stream;
     }).catch(() => {});
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  const startRecording = useCallback(() => {
+    if (recordingStartedRef.current || !mediaStreamRef.current) return;
+    recordingStartedRef.current = true;
+    const stream = mediaStreamRef.current;
+    const mr = new MediaRecorder(stream);
+    mediaRecorderRef.current = mr;
+    mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    mr.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      setRecordingBlob(blob);
+    };
+    mr.start(1000);
   }, []);
 
   // Auto-scroll transcript
@@ -117,13 +139,14 @@ export default function CallScreen() {
   useEffect(() => {
     if (!callActive) return;
     const settings = getSettings();
-    if (!settings.geminiApiKey) return;
+    const keys = settings.geminiApiKeys.length > 0 ? settings.geminiApiKeys : (settings.geminiApiKey ? [settings.geminiApiKey] : []);
+    if (!keys.length) return;
     const rate = (settings.suggestionRefreshRate || 10) * 1000;
 
     const fetchAI = async () => {
       if (!transcriptAccRef.current.trim()) return;
       try {
-        const cards = await fetchSuggestions(settings.geminiApiKey, transcriptAccRef.current, settings.salesScript);
+        const cards = await fetchSuggestions(keys, transcriptAccRef.current, settings.salesScript);
         setSuggestions(cards);
         setSuggestionsError('');
       } catch {
@@ -140,10 +163,14 @@ export default function CallScreen() {
     setCallActive(false);
     try { recognitionRef.current?.stop(); } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
+    // Stop stream tracks if recording never started
+    if (!recordingStartedRef.current) {
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    }
     setShowPostCall(true);
   }, []);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string) => {
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean) => {
     if (contact) {
       const callId = v4();
       const now = new Date().toISOString();
@@ -157,24 +184,36 @@ export default function CallScreen() {
         ended_at: now,
         duration_seconds: seconds,
         transcript: transcriptAccRef.current,
-        recording_filename: filename,
+        recording_filename: keepRecording ? filename : '',
         recording_drive_url: '',
         notes,
         actions_taken: actions,
       });
 
+      const isRevert = actions.includes('revert_uncalled');
+      const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
+
       updateContact(contact.id, {
-        called: true,
-        call_date: now,
+        called: !isRevert,
+        call_date: isRevert ? '' : now,
         notes: notes || contact.notes,
         not_interested: actions.includes('not_interested'),
         follow_up_date: followUpDate || '',
+        call_outcome: outcome || '',
       });
+
+      // Suppress for session if no answer / phone not working
+      if (isSuppressed) {
+        suppressContact(contact.id);
+      }
+
+      // Record session stats
+      recordCallOutcome(outcome || 'completed');
     }
 
-    // Handle recording save based on settings
+    // Handle recording save
     const settings = getSettings();
-    if (recordingBlob && contact) {
+    if (keepRecording && recordingBlob && contact) {
       const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.webm`;
       if (settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both') {
         const url = URL.createObjectURL(recordingBlob);
@@ -184,8 +223,10 @@ export default function CallScreen() {
         a.click();
         URL.revokeObjectURL(url);
       }
-      // Drive upload would happen here when connected
     }
+
+    // Stop remaining tracks
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
 
     navigate('/');
   };
@@ -207,6 +248,8 @@ export default function CallScreen() {
     );
   }
 
+  const hasValidWebsite = isValidWebsite(contact.website);
+
   return (
     <div className="h-screen flex flex-col">
       {/* Top Bar */}
@@ -214,8 +257,24 @@ export default function CallScreen() {
         <div className="flex items-center gap-4">
           <h1 className="font-bold text-lg">{contact.name}</h1>
           <span className="font-mono text-sm text-muted-foreground">{contact.phone}</span>
+          {hasValidWebsite && (
+            <a href={contact.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors text-sm">
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Website</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setShowBusinessInfo(!showBusinessInfo)} className="text-xs gap-1 h-7">
+            {showBusinessInfo ? 'Hide Info' : 'Show Info'}
+          </Button>
         </div>
         <div className="flex items-center gap-4">
+          {speechDetectedRef.current && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
+              <span className="text-xs font-semibold text-destructive">REC</span>
+            </div>
+          )}
           <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
           <Button onClick={endCall} variant="destructive" className="font-semibold gap-2 rounded-lg">
             <Phone className="w-4 h-4 rotate-[135deg]" />
@@ -224,11 +283,46 @@ export default function CallScreen() {
         </div>
       </div>
 
+      {/* Business Info Bar */}
+      {showBusinessInfo && (
+        <div className="border-b border-border bg-card/30 px-6 py-2 flex items-center gap-6 text-sm shrink-0">
+          {contact.address && (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <MapPin className="w-3.5 h-3.5" />
+              <span className="truncate max-w-[200px]">{contact.address}</span>
+              {contact.google_maps_url && (
+                <a href={contact.google_maps_url} target="_blank" rel="noopener noreferrer" className="text-primary">
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          )}
+          {contact.rating > 0 && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <Star className="w-3.5 h-3.5 text-warning fill-warning" />
+              <span>{contact.rating}</span>
+              {contact.review_count > 0 && <span className="text-xs">({contact.review_count})</span>}
+            </div>
+          )}
+          {contact.opening_hours && (
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-xs">{getTodayHours(contact.opening_hours)}</span>
+            </div>
+          )}
+          {contact.outreach_tier && (
+            <span className={contact.outreach_tier === 1 ? 'badge-tier1' : contact.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3'}>
+              T{contact.outreach_tier}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Panels */}
       <div className="flex-1 flex min-h-0">
         {/* Transcript */}
         <div className="w-[65%] border-r border-border flex flex-col relative">
-          {callActive && (
+          {callActive && speechDetectedRef.current && (
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
               <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
               <span className="text-xs font-semibold text-destructive">REC</span>
@@ -244,6 +338,7 @@ export default function CallScreen() {
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <Mic className="w-10 h-10 mb-3 opacity-40" />
                 <p className="text-sm">Listening... Start speaking to see the transcript</p>
+                <p className="text-xs mt-1 opacity-60">Recording will start when speech is detected</p>
               </div>
             ) : (
               <div className="whitespace-pre-wrap">
@@ -257,20 +352,30 @@ export default function CallScreen() {
         {/* Suggestions */}
         <div className="w-[35%] flex flex-col p-4 gap-3 overflow-y-auto">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">AI Suggestions</h3>
-          {!getSettings().geminiApiKey ? (
-            <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-              Add your Gemini API key in Settings to enable AI suggestions
-            </div>
-          ) : suggestionsError ? (
+          {(() => {
+            const settings = getSettings();
+            const hasKeys = settings.geminiApiKeys.length > 0 || !!settings.geminiApiKey;
+            if (!hasKeys) {
+              return (
+                <div className="glass-card p-4 text-center text-sm text-muted-foreground">
+                  Add your Gemini API key in Settings to enable AI suggestions
+                </div>
+              );
+            }
+            return null;
+          })()}
+          {suggestionsError && (
             <div className="glass-card p-4 text-center text-sm text-warning">{suggestionsError}</div>
-          ) : !transcript.trim() ? (
+          )}
+          {!transcript.trim() && (
             <div className="glass-card p-4 text-center text-sm text-muted-foreground">Suggestions paused — waiting for transcript</div>
-          ) : suggestions.length === 0 ? (
+          )}
+          {transcript.trim() && suggestions.length === 0 && !suggestionsError && (
             <div className="glass-card p-4 text-center text-sm text-muted-foreground">
               <div className="w-6 h-6 border-2 border-primary/40 border-t-primary rounded-full animate-spin mx-auto mb-2" />
               Generating suggestions...
             </div>
-          ) : null}
+          )}
           <AnimatePresence mode="popLayout">
             {suggestions.map((card, idx) => (
               <motion.div

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { ExternalLink, Save, Key, FileText, Clock, HardDrive } from 'lucide-react';
+import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -13,9 +13,16 @@ const TIMES = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
+  const [newApiKey, setNewApiKey] = useState('');
 
   useEffect(() => {
-    setSettings(getSettings());
+    const loaded = getSettings();
+    // Migrate legacy single key
+    if (loaded.geminiApiKey && (!loaded.geminiApiKeys || loaded.geminiApiKeys.length === 0)) {
+      loaded.geminiApiKeys = [loaded.geminiApiKey];
+    }
+    if (!loaded.geminiApiKeys) loaded.geminiApiKeys = [];
+    setSettings(loaded);
   }, []);
 
   const update = (patch: Partial<SettingsType>) => {
@@ -23,8 +30,26 @@ export default function SettingsPage() {
   };
 
   const save = () => {
-    saveSettings(settings);
+    // Keep legacy key in sync
+    const toSave = { ...settings, geminiApiKey: settings.geminiApiKeys[0] || '' };
+    saveSettings(toSave);
     toast.success('Settings saved');
+  };
+
+  const addApiKey = () => {
+    const key = newApiKey.trim();
+    if (!key) return;
+    if (settings.geminiApiKeys.includes(key)) {
+      toast.error('Key already added');
+      return;
+    }
+    update({ geminiApiKeys: [...settings.geminiApiKeys, key] });
+    setNewApiKey('');
+    toast.success('API key added');
+  };
+
+  const removeApiKey = (idx: number) => {
+    update({ geminiApiKeys: settings.geminiApiKeys.filter((_, i) => i !== idx) });
   };
 
   const updateSchedule = (dayIdx: number, field: 'startTime' | 'endTime', value: string) => {
@@ -59,25 +84,52 @@ export default function SettingsPage() {
           />
         </section>
 
-        {/* Gemini API Key */}
+        {/* Gemini API Keys */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <Key className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Gemini API Key</h2>
+            <h2 className="font-semibold">Gemini API Keys</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">
-            Get a free API key at{' '}
+            Add multiple keys — when one is exhausted, it auto-cycles to the next.{' '}
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
-              aistudio.google.com <ExternalLink className="w-3 h-3" />
+              Get a key <ExternalLink className="w-3 h-3" />
             </a>
           </p>
-          <Input
-            type="password"
-            value={settings.geminiApiKey}
-            onChange={e => update({ geminiApiKey: e.target.value })}
-            placeholder="AIza..."
-            className="bg-input border-border font-mono text-sm"
-          />
+
+          {/* Existing keys */}
+          <div className="space-y-2 mb-3">
+            {settings.geminiApiKeys.map((key, idx) => (
+              <div key={idx} className="flex items-center gap-2 glass-card p-2">
+                <span className="text-xs font-mono text-muted-foreground flex-1 truncate">
+                  {key.slice(0, 8)}...{key.slice(-4)}
+                </span>
+                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Key {idx + 1}</span>
+                <button onClick={() => removeApiKey(idx)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+            {settings.geminiApiKeys.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">No API keys added yet</p>
+            )}
+          </div>
+
+          {/* Add new key */}
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              value={newApiKey}
+              onChange={e => setNewApiKey(e.target.value)}
+              placeholder="AIza..."
+              className="bg-input border-border font-mono text-sm flex-1"
+              onKeyDown={e => e.key === 'Enter' && addApiKey()}
+            />
+            <Button size="sm" onClick={addApiKey} className="gap-1 shrink-0">
+              <Plus className="w-3.5 h-3.5" />
+              Add
+            </Button>
+          </div>
         </section>
 
         {/* Suggestion Rate */}

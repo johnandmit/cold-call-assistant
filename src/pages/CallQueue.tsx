@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Contact } from '@/types';
-import { getContacts, saveContacts } from '@/lib/storage';
+import { Contact, isValidWebsite } from '@/types';
+import { getContacts, saveContacts, updateContact } from '@/lib/storage';
+import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours } from '@/lib/hours-utils';
+import { isContactSuppressed } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, Filter, SlidersHorizontal } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, Filter, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 type QueueFilterState = {
   minRating: number;
@@ -26,87 +29,6 @@ const DEFAULT_QUEUE_FILTERS: QueueFilterState = {
   calledStatus: 'all',
 };
 
-const DAY_NAMES: Record<string, number> = {
-  sunday: 0, sun: 0, su: 0,
-  monday: 1, mon: 1, mo: 1,
-  tuesday: 2, tue: 2, tu: 2, tues: 2,
-  wednesday: 3, wed: 3, we: 3,
-  thursday: 4, thu: 4, th: 4, thurs: 4,
-  friday: 5, fri: 5, fr: 5,
-  saturday: 6, sat: 6, sa: 6,
-};
-
-function parseTime(timeStr: string): number | null {
-  const s = timeStr.trim().toLowerCase();
-  if (s === 'closed') return null;
-  const match = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(?:\u202f)?\s*(am|pm)?$/i);
-  if (!match) return null;
-  let hours = parseInt(match[1], 10);
-  const minutes = match[2] ? parseInt(match[2], 10) : 0;
-  const period = match[3]?.toLowerCase();
-  if (period === 'pm' && hours !== 12) hours += 12;
-  if (period === 'am' && hours === 12) hours = 0;
-  return hours * 60 + minutes;
-}
-
-function isCurrentlyOpen(hours: string): boolean {
-  if (!hours || !hours.trim()) return false;
-  const now = new Date();
-  const currentDay = now.getDay();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const entries = hours.split(/[,;|]/).map(e => e.trim()).filter(Boolean);
-  for (const entry of entries) {
-    const dayTimeMatch = entry.match(/^([a-zA-Z]+(?:\s*[-–—]\s*[a-zA-Z]+)?)\s*[:]\s*(.+)$/);
-    if (dayTimeMatch) {
-      const dayPart = dayTimeMatch[1].trim().toLowerCase();
-      const timePart = dayTimeMatch[2].trim();
-      if (!isDayMatch(dayPart, currentDay)) continue;
-      if (timePart.toLowerCase() === 'closed') return false;
-      if (timePart.toLowerCase().includes('24 hour') || timePart.toLowerCase().includes('open 24')) return true;
-      const timeRange = parseTimeRange(timePart);
-      if (timeRange && currentMinutes >= timeRange.start && currentMinutes <= timeRange.end) return true;
-      continue;
-    }
-    const noColonMatch = entry.match(/^([a-zA-Z]+(?:\s*[-–—]\s*[a-zA-Z]+)?)\s+(.+)$/);
-    if (noColonMatch) {
-      const dayPart = noColonMatch[1].trim().toLowerCase();
-      const timePart = noColonMatch[2].trim();
-      if (!isDayMatch(dayPart, currentDay)) continue;
-      if (timePart.toLowerCase() === 'closed') return false;
-      const timeRange = parseTimeRange(timePart);
-      if (timeRange && currentMinutes >= timeRange.start && currentMinutes <= timeRange.end) return true;
-    }
-  }
-  return false;
-}
-
-function isDayMatch(dayPart: string, currentDay: number): boolean {
-  const rangeParts = dayPart.split(/\s*[-–—]\s*/);
-  if (rangeParts.length === 2) {
-    const startDay = DAY_NAMES[rangeParts[0].trim()];
-    const endDay = DAY_NAMES[rangeParts[1].trim()];
-    if (startDay !== undefined && endDay !== undefined) {
-      if (startDay <= endDay) return currentDay >= startDay && currentDay <= endDay;
-      return currentDay >= startDay || currentDay <= endDay;
-    }
-  }
-  return DAY_NAMES[dayPart.trim()] === currentDay;
-}
-
-function parseTimeRange(timePart: string): { start: number; end: number } | null {
-  const parts = timePart.split(/\s*[-–—to]+\s*/i);
-  if (parts.length < 2) return null;
-  const start = parseTime(parts[0]);
-  const end = parseTime(parts[parts.length - 1]);
-  if (start === null || end === null) return null;
-  return { start, end };
-}
-
-function isFollowUpDue(followUpDate: string): boolean {
-  if (!followUpDate) return false;
-  return new Date(followUpDate) <= new Date();
-}
-
 export default function CallQueue() {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -115,6 +37,9 @@ export default function CallQueue() {
   const [showOpenOnly, setShowOpenOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_QUEUE_FILTERS);
+  const [expandedHoursId, setExpandedHoursId] = useState<string | null>(null);
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
 
   const refreshContacts = useCallback(() => {
@@ -123,7 +48,6 @@ export default function CallQueue() {
 
   useEffect(() => {
     refreshContacts();
-    // Refresh when returning from call screen or when window regains focus
     const onFocus = () => refreshContacts();
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onFocus);
@@ -133,13 +57,12 @@ export default function CallQueue() {
     };
   }, [refreshContacts]);
 
-  // Follow-ups due
   const followUps = useMemo(() => {
     return contacts.filter(c => c.follow_up_date && isFollowUpDue(c.follow_up_date));
   }, [contacts]);
 
   const sortedContacts = useMemo(() => {
-    let filtered = contacts.filter(c => !c.not_interested);
+    let filtered = contacts.filter(c => !c.not_interested && !isContactSuppressed(c.id) && !skippedIds.has(c.id));
     if (search) {
       const s = search.toLowerCase();
       filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
@@ -147,49 +70,69 @@ export default function CallQueue() {
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
     }
-    // Apply filters
     if (filters.minRating > 0) filtered = filtered.filter(c => c.rating >= filters.minRating);
     if (filters.maxTier < 3) filtered = filtered.filter(c => (c.outreach_tier || 3) <= filters.maxTier);
     if (filters.minScore > 0) filtered = filtered.filter(c => c.conversion_confidence_score >= filters.minScore);
     if (filters.urgency !== 'all') filtered = filtered.filter(c => c.average_urgency === filters.urgency);
-    if (filters.hasWebsite === 'yes') filtered = filtered.filter(c => !!c.website);
-    if (filters.hasWebsite === 'no') filtered = filtered.filter(c => !c.website);
+    if (filters.hasWebsite === 'yes') filtered = filtered.filter(c => isValidWebsite(c.website));
+    if (filters.hasWebsite === 'no') filtered = filtered.filter(c => !isValidWebsite(c.website));
     if (filters.calledStatus === 'yes') filtered = filtered.filter(c => c.called);
     if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
     return [...filtered].sort((a, b) => {
-      // Follow-ups due first
       const aFollowUp = a.follow_up_date && isFollowUpDue(a.follow_up_date);
       const bFollowUp = b.follow_up_date && isFollowUpDue(b.follow_up_date);
       if (aFollowUp !== bFollowUp) return aFollowUp ? -1 : 1;
-      // Called contacts last
       if (a.called !== b.called) return a.called ? 1 : -1;
-      // Tier ascending
       if ((a.outreach_tier || 99) !== (b.outreach_tier || 99)) return (a.outreach_tier || 99) - (b.outreach_tier || 99);
-      // Currently open boost
       const aOpen = isCurrentlyOpen(a.opening_hours);
       const bOpen = isCurrentlyOpen(b.opening_hours);
       if (aOpen !== bOpen) return aOpen ? -1 : 1;
-      // Closed businesses pushed down
       const aClosed = a.opening_hours && !aOpen;
       const bClosed = b.opening_hours && !bOpen;
       if (aClosed !== bClosed) return aClosed ? 1 : -1;
-      // Conversion score descending
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
-  }, [contacts, search, showOpenOnly, filters]);
+  }, [contacts, search, showOpenOnly, filters, skippedIds]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
   const startCall = () => {
     if (heroContact) {
-      // Check if currently open
       if (heroContact.opening_hours && !isCurrentlyOpen(heroContact.opening_hours)) {
         const proceed = window.confirm(`${heroContact.name} appears to be closed right now. Call anyway?`);
         if (!proceed) return;
       }
       navigate('/call', { state: { contact: heroContact } });
     }
+  };
+
+  const handleSkip = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setSkippedIds(prev => new Set([...prev, id]));
+    toast.success('Skipped for this session');
+  };
+
+  const handleDelete = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this lead permanently?')) return;
+    const updated = contacts.filter(c => c.id !== id);
+    saveContacts(updated);
+    setContacts(updated);
+    toast.success('Lead deleted');
+  };
+
+  const handleInlineEdit = (e: React.MouseEvent, contact: Contact) => {
+    e.stopPropagation();
+    setEditingContact({ ...contact });
+  };
+
+  const saveInlineEdit = () => {
+    if (!editingContact) return;
+    updateContact(editingContact.id, editingContact);
+    refreshContacts();
+    setEditingContact(null);
+    toast.success('Contact updated');
   };
 
   if (contacts.length === 0) {
@@ -211,7 +154,12 @@ export default function CallQueue() {
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Call Queue</h1>
-        <div className="text-sm text-muted-foreground">{sortedContacts.filter(c => !c.called).length} remaining</div>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')} className="text-xs gap-1">
+            📊 Stats
+          </Button>
+          <div className="text-sm text-muted-foreground">{sortedContacts.filter(c => !c.called).length} remaining</div>
+        </div>
       </div>
 
       {/* Follow-up reminders */}
@@ -323,57 +271,131 @@ export default function CallQueue() {
           </div>
         </div>
       )}
+
       <div className="space-y-1">
         {sortedContacts.map(contact => {
           const isOpen = isCurrentlyOpen(contact.opening_hours);
           const isClosed = contact.opening_hours && !isOpen;
           const isFollowUp = contact.follow_up_date && isFollowUpDue(contact.follow_up_date);
+          const hasHours = !!contact.opening_hours;
+          const isHoursExpanded = expandedHoursId === contact.id;
 
           return (
-            <button
-              key={contact.id}
-              onClick={() => setSelectedId(contact.id)}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-lg text-left transition-all duration-200 ${
-                contact.id === heroContact?.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-accent'
-              } ${contact.called && !isFollowUp ? 'opacity-50' : ''}`}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm truncate">{contact.name}</span>
-                  {isFollowUp && (
-                    <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
-                      <Bell className="w-2.5 h-2.5" /> Follow-up
+            <div key={contact.id}>
+              <div
+                onClick={() => setSelectedId(contact.id)}
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-lg text-left transition-all duration-200 cursor-pointer ${
+                  contact.id === heroContact?.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-accent'
+                } ${contact.called && !isFollowUp ? 'opacity-50' : ''}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm truncate">{contact.name}</span>
+                    {isFollowUp && (
+                      <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                        <Bell className="w-2.5 h-2.5" /> Follow-up
+                      </span>
+                    )}
+                    {contact.called && !isFollowUp && <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Called</span>}
+                    {contact.call_outcome === 'no_answer' && <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-medium">No Answer</span>}
+                    {contact.call_outcome === 'phone_not_working' && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Bad #</span>}
+                    {!contact.called && isOpen && (
+                      <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Open Now</span>
+                    )}
+                    {!contact.called && isClosed && (
+                      <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Closed</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground font-mono">{contact.phone}</span>
+                    {hasHours && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedHoursId(isHoursExpanded ? null : contact.id); }}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Clock className="w-3 h-3" />
+                        <span>{getTodayHours(contact.opening_hours)}</span>
+                        {isHoursExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={(e) => handleInlineEdit(e, contact)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Edit">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={(e) => handleSkip(e, contact.id)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Skip">
+                    <SkipForward className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={(e) => handleDelete(e, contact.id)} className="p-1.5 rounded hover:bg-destructive/20 transition-colors text-muted-foreground hover:text-destructive" title="Delete">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  {isValidWebsite(contact.website) ? (
+                    <Globe className="w-3.5 h-3.5 text-success" />
+                  ) : (
+                    <Globe className="w-3.5 h-3.5 text-destructive/50" />
+                  )}
+                  {contact.outreach_tier && (
+                    <span className={contact.outreach_tier === 1 ? 'badge-tier1' : contact.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3'}>
+                      T{contact.outreach_tier}
                     </span>
                   )}
-                  {contact.called && !isFollowUp && <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Called</span>}
-                  {!contact.called && isOpen && (
-                    <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Open Now</span>
-                  )}
-                  {!contact.called && isClosed && (
-                    <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Closed</span>
+                  {contact.conversion_confidence_score > 0 && (
+                    <span className="text-xs text-muted-foreground">{contact.conversion_confidence_score}%</span>
                   )}
                 </div>
-                <span className="text-xs text-muted-foreground font-mono">{contact.phone}</span>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {contact.website ? (
-                  <Globe className="w-3.5 h-3.5 text-success" />
-                ) : (
-                  <Globe className="w-3.5 h-3.5 text-destructive/50" />
-                )}
-                {contact.outreach_tier && (
-                  <span className={contact.outreach_tier === 1 ? 'badge-tier1' : contact.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3'}>
-                    T{contact.outreach_tier}
-                  </span>
-                )}
-                {contact.conversion_confidence_score > 0 && (
-                  <span className="text-xs text-muted-foreground">{contact.conversion_confidence_score}%</span>
-                )}
-              </div>
-            </button>
+              {/* Expanded hours */}
+              {isHoursExpanded && hasHours && (
+                <div className="ml-8 mb-2 glass-card p-3 text-xs space-y-1">
+                  {parseAllDayHours(contact.opening_hours).map(dh => (
+                    <div key={dh.day} className={`flex justify-between ${dh.isToday ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>
+                      <span>{dh.day}</span>
+                      <span>{dh.hours}</span>
+                    </div>
+                  ))}
+                  {parseAllDayHours(contact.opening_hours).length === 0 && (
+                    <span className="text-muted-foreground">{contact.opening_hours}</span>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
+
+      {/* Inline Edit Modal */}
+      {editingContact && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-card w-full max-w-md p-6 space-y-3">
+            <h3 className="text-lg font-bold mb-4">Edit Contact</h3>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <Input value={editingContact.name} onChange={e => setEditingContact({ ...editingContact, name: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Phone</label>
+              <Input value={editingContact.phone} onChange={e => setEditingContact({ ...editingContact, phone: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Website</label>
+              <Input value={editingContact.website} onChange={e => setEditingContact({ ...editingContact, website: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Address</label>
+              <Input value={editingContact.address} onChange={e => setEditingContact({ ...editingContact, address: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Notes</label>
+              <Input value={editingContact.notes} onChange={e => setEditingContact({ ...editingContact, notes: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={saveInlineEdit} className="flex-1">Save</Button>
+              <Button variant="outline" onClick={() => setEditingContact(null)} className="flex-1">Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
