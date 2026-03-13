@@ -17,6 +17,7 @@ const FIELD_ALIASES: Record<TargetField, string[]> = {
   average_urgency: ['averageurgency', 'avgurgency', 'urgency'],
   opening_hours: ['openinghours', 'hours', 'businesshours', 'operatinghours', 'workinghours'],
   called: ['called', 'contacted', 'reached', 'calledstatus'],
+  category: ['category', 'niche', 'type', 'businesstype', 'industry', 'sector'],
 };
 
 // Only auto-detect with HIGH confidence (exact or very close match)

@@ -1,33 +1,15 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Contact, isValidWebsite } from '@/types';
-import { getContacts, saveContacts, updateContact } from '@/lib/storage';
-import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours } from '@/lib/hours-utils';
-import { isContactSuppressed } from '@/lib/session';
+import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from '@/types';
+import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
+import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
+import { isContactSuppressed, skipContact, getSkippedIds } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, Filter, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-
-type QueueFilterState = {
-  minRating: number;
-  maxTier: number;
-  minScore: number;
-  urgency: string;
-  hasWebsite: string;
-  calledStatus: string;
-};
-
-const DEFAULT_QUEUE_FILTERS: QueueFilterState = {
-  minRating: 0,
-  maxTier: 3,
-  minScore: 0,
-  urgency: 'all',
-  hasWebsite: 'all',
-  calledStatus: 'all',
-};
 
 export default function CallQueue() {
   const navigate = useNavigate();
@@ -42,8 +24,24 @@ export default function CallQueue() {
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
 
+  // Load persisted filters from settings
+  useEffect(() => {
+    const settings = getSettings();
+    if (settings.queueFilters) {
+      setFilters(settings.queueFilters);
+    }
+  }, []);
+
+  // Persist filters when they change
+  useEffect(() => {
+    const settings = getSettings();
+    settings.queueFilters = filters;
+    saveSettings(settings);
+  }, [filters]);
+
   const refreshContacts = useCallback(() => {
     setContacts(getContacts());
+    setSkippedIds(getSkippedIds());
   }, []);
 
   useEffect(() => {
@@ -80,14 +78,27 @@ export default function CallQueue() {
     if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
     return [...filtered].sort((a, b) => {
+      // Follow-ups first
       const aFollowUp = a.follow_up_date && isFollowUpDue(a.follow_up_date);
       const bFollowUp = b.follow_up_date && isFollowUpDue(b.follow_up_date);
       if (aFollowUp !== bFollowUp) return aFollowUp ? -1 : 1;
+      // Uncalled before called
       if (a.called !== b.called) return a.called ? 1 : -1;
+      // Tier ordering
       if ((a.outreach_tier || 99) !== (b.outreach_tier || 99)) return (a.outreach_tier || 99) - (b.outreach_tier || 99);
+      // Open businesses before closed
       const aOpen = isCurrentlyOpen(a.opening_hours);
       const bOpen = isCurrentlyOpen(b.opening_hours);
       if (aOpen !== bOpen) return aOpen ? -1 : 1;
+      // Among open businesses, prioritize those closing soon
+      if (aOpen && bOpen) {
+        const aClosing = getClosingMinutes(a.opening_hours);
+        const bClosing = getClosingMinutes(b.opening_hours);
+        if (aClosing !== null && bClosing !== null && aClosing !== bClosing) {
+          return aClosing - bClosing; // closing sooner = higher priority
+        }
+      }
+      // Closed at bottom
       const aClosed = a.opening_hours && !aOpen;
       const bClosed = b.opening_hours && !bOpen;
       if (aClosed !== bClosed) return aClosed ? 1 : -1;
@@ -103,14 +114,18 @@ export default function CallQueue() {
         const proceed = window.confirm(`${heroContact.name} appears to be closed right now. Call anyway?`);
         if (!proceed) return;
       }
-      navigate('/call', { state: { contact: heroContact } });
+      // Lock queue: pass sorted IDs and current index
+      const queueIds = sortedContacts.map(c => c.id);
+      const queueIndex = queueIds.indexOf(heroContact.id);
+      navigate('/call', { state: { contact: heroContact, queueIds, queueIndex } });
     }
   };
 
   const handleSkip = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    skipContact(id);
     setSkippedIds(prev => new Set([...prev, id]));
-    toast.success('Skipped for this session');
+    toast.success('Skipped for the day');
   };
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
@@ -196,7 +211,7 @@ export default function CallQueue() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search contacts..."
+            placeholder="Search by name or phone..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9 bg-input border-border"
@@ -305,6 +320,9 @@ export default function CallQueue() {
                     {!contact.called && isClosed && (
                       <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Closed</span>
                     )}
+                    {contact.category && (
+                      <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{contact.category}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground font-mono">{contact.phone}</span>
@@ -324,7 +342,7 @@ export default function CallQueue() {
                   <button onClick={(e) => handleInlineEdit(e, contact)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Edit">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={(e) => handleSkip(e, contact.id)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Skip">
+                  <button onClick={(e) => handleSkip(e, contact.id)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Skip for the day">
                     <SkipForward className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={(e) => handleDelete(e, contact.id)} className="p-1.5 rounded hover:bg-destructive/20 transition-colors text-muted-foreground hover:text-destructive" title="Delete">
