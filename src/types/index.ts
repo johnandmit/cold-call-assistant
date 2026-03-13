@@ -17,8 +17,9 @@ export interface Contact {
   call_recording_drive_url: string;
   not_interested: boolean;
   follow_up_date: string;
-  call_outcome: string; // 'no_answer' | 'phone_not_working' | 'interested' | 'not_interested' | etc.
-  suppressed_until: string; // ISO date – suppressed for the session/day
+  call_outcome: string;
+  suppressed_until: string;
+  category: string; // niche/category from CSV
 }
 
 export interface Call {
@@ -33,11 +34,14 @@ export interface Call {
   recording_drive_url: string;
   notes: string;
   actions_taken: string[];
+  call_rating: number; // 1-5 star rating
+  session_id: string; // which session this call belongs to
+  category: string; // contact's category/niche
 }
 
 export interface Settings {
-  geminiApiKeys: string[]; // multiple keys with auto-cycling
-  geminiApiKey: string; // legacy single key, kept for compat
+  geminiApiKeys: string[];
+  geminiApiKey: string;
   salesScript: string;
   schedule: ScheduleEntry[];
   driveConnected: boolean;
@@ -45,7 +49,26 @@ export interface Settings {
   driveEmail: string;
   suggestionRefreshRate: number;
   recordingSaveMode: 'local' | 'drive' | 'both';
+  queueFilters: QueueFilterState;
 }
+
+export interface QueueFilterState {
+  minRating: number;
+  maxTier: number;
+  minScore: number;
+  urgency: string;
+  hasWebsite: string;
+  calledStatus: string;
+}
+
+export const DEFAULT_QUEUE_FILTERS: QueueFilterState = {
+  minRating: 0,
+  maxTier: 3,
+  minScore: 0,
+  urgency: 'all',
+  hasWebsite: 'all',
+  calledStatus: 'all',
+};
 
 export interface ScheduleEntry {
   day: string;
@@ -62,7 +85,7 @@ export interface SuggestionCard {
 export const TARGET_FIELDS = [
   'name', 'phone', 'address', 'website', 'google_maps_url',
   'rating', 'review_count', 'conversion_confidence_score',
-  'outreach_tier', 'average_urgency', 'opening_hours', 'called',
+  'outreach_tier', 'average_urgency', 'opening_hours', 'called', 'category',
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];
@@ -90,13 +113,23 @@ export const DEFAULT_SETTINGS: Settings = {
   driveEmail: '',
   suggestionRefreshRate: 10,
   recordingSaveMode: 'local',
+  queueFilters: DEFAULT_QUEUE_FILTERS,
 };
 
-// Session stats tracking
+// Named sessions
+export interface Session {
+  id: string;
+  name: string; // e.g. "4th of July, 10:15 PM"
+  startedAt: string;
+  endedAt: string;
+  callsMade: number;
+  outcomes: Record<string, number>;
+}
+
 export interface SessionStats {
   sessionStart: string;
   callsMade: number;
-  outcomes: Record<string, number>; // outcome -> count
+  outcomes: Record<string, number>;
 }
 
 export function isValidWebsite(url: string): boolean {

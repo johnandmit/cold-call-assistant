@@ -7,7 +7,9 @@ const SETTINGS_KEY = 'sales-assistant-settings';
 export function getContacts(): Contact[] {
   try {
     const data = localStorage.getItem(CONTACTS_KEY);
-    return data ? JSON.parse(data) : [];
+    const contacts = data ? JSON.parse(data) : [];
+    // Migrate: add category field if missing
+    return contacts.map((c: any) => ({ ...c, category: c.category || '' }));
   } catch { return []; }
 }
 
@@ -28,7 +30,8 @@ export function updateContact(id: string, updates: Partial<Contact>) {
 export function getCalls(): Call[] {
   try {
     const data = localStorage.getItem(CALLS_KEY);
-    return data ? JSON.parse(data) : [];
+    const calls = data ? JSON.parse(data) : [];
+    return calls.map((c: any) => ({ ...c, call_rating: c.call_rating || 0, session_id: c.session_id || '', category: c.category || '' }));
   } catch { return []; }
 }
 
