@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
-import { Contact, ColumnMapping } from '@/types';
+import { Contact, ColumnMapping, isValidWebsite } from '@/types';
 import { getContacts, saveContacts } from '@/lib/storage';
 import { autoDetectMappings, mapRowToContact, parseCalled } from '@/lib/csv-utils';
+import { getTodayHours } from '@/lib/hours-utils';
 import { v4 } from '@/lib/uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,8 +16,8 @@ type FilterState = {
   maxTier: number;
   minScore: number;
   urgency: string;
-  hasWebsite: string; // 'all' | 'yes' | 'no'
-  calledStatus: string; // 'all' | 'yes' | 'no'
+  hasWebsite: string;
+  calledStatus: string;
 };
 
 const DEFAULT_FILTERS: FilterState = {
@@ -45,6 +46,20 @@ export default function CsvManager() {
   const [dragStartIdx, setDragStartIdx] = useState<number | null>(null);
   const [dragMode, setDragMode] = useState<'select' | 'deselect'>('select');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Delete key support
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' && selectedIds.size > 0) {
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds]);
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -113,6 +128,7 @@ export default function CsvManager() {
         follow_up_date: '',
         call_outcome: '',
         suppressed_until: '',
+        category: String(mapped.category || ''),
       };
     }).filter(c => c.name && c.phone);
 
@@ -149,7 +165,6 @@ export default function CsvManager() {
     toast.success('Note saved');
   };
 
-  // Bulk & individual actions
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -166,10 +181,9 @@ export default function CsvManager() {
     }
   };
 
-  // Drag-to-select handlers — click row toggles, drag extends
+  // Drag-to-select/deselect
   const handleRowMouseDown = (idx: number, e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    // Don't interfere with buttons/inputs inside rows
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('input') || target.closest('textarea')) return;
     e.preventDefault();
@@ -189,15 +203,11 @@ export default function CsvManager() {
 
   const handleRowMouseEnter = (idx: number) => {
     if (!isDragging || dragStartIdx === null) return;
-    const start = Math.min(dragStartIdx, idx);
-    const end = Math.max(dragStartIdx, idx);
     setSelectedIds(prev => {
       const next = new Set(prev);
-      for (let i = start; i <= end; i++) {
-        const id = filtered[i]?.id;
-        if (id) {
-          if (dragMode === 'select') next.add(id); else next.delete(id);
-        }
+      const id = filtered[idx]?.id;
+      if (id) {
+        if (dragMode === 'select') next.add(id); else next.delete(id);
       }
       return next;
     });
@@ -209,6 +219,7 @@ export default function CsvManager() {
   };
 
   const deleteSelected = () => {
+    if (selectedIds.size === 0) return;
     const updated = contacts.filter(c => !selectedIds.has(c.id));
     saveContacts(updated);
     setContacts(updated);
@@ -240,7 +251,6 @@ export default function CsvManager() {
     toast.success('Contact updated');
   };
 
-  // Filtering
   const filtered = useMemo(() => {
     let list = contacts;
     if (search) {
@@ -251,8 +261,8 @@ export default function CsvManager() {
     if (filters.maxTier < 3) list = list.filter(c => (c.outreach_tier || 3) <= filters.maxTier);
     if (filters.minScore > 0) list = list.filter(c => c.conversion_confidence_score >= filters.minScore);
     if (filters.urgency !== 'all') list = list.filter(c => c.average_urgency === filters.urgency);
-    if (filters.hasWebsite === 'yes') list = list.filter(c => !!c.website);
-    if (filters.hasWebsite === 'no') list = list.filter(c => !c.website);
+    if (filters.hasWebsite === 'yes') list = list.filter(c => isValidWebsite(c.website));
+    if (filters.hasWebsite === 'no') list = list.filter(c => !isValidWebsite(c.website));
     if (filters.calledStatus === 'yes') list = list.filter(c => c.called);
     if (filters.calledStatus === 'no') list = list.filter(c => !c.called);
     return list;
@@ -353,11 +363,12 @@ export default function CsvManager() {
                 ['website', 'Website'],
                 ['google_maps_url', 'Google Maps URL'],
                 ['opening_hours', 'Opening Hours'],
+                ['category', 'Category / Niche'],
               ] as const).map(([key, label]) => (
                 <div key={key}>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
                   <Input
-                    value={String(editingContact[key] || '')}
+                    value={String((editingContact as any)[key] || '')}
                     onChange={e => setEditingContact({ ...editingContact, [key]: e.target.value })}
                     className="bg-input border-border text-sm"
                   />
@@ -416,10 +427,10 @@ export default function CsvManager() {
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search contacts..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-input border-border" />
+              <Input placeholder="Search by name or phone..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-input border-border" />
             </div>
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} className={showFilters ? 'border-primary text-primary' : ''}>
-              Filters {filters !== DEFAULT_FILTERS ? '•' : ''}
+              Filters {JSON.stringify(filters) !== JSON.stringify(DEFAULT_FILTERS) ? '•' : ''}
             </Button>
           </div>
 
@@ -483,6 +494,7 @@ export default function CsvManager() {
                 <Trash2 className="w-3 h-3" />
                 Delete
               </Button>
+              <span className="text-xs text-muted-foreground ml-1">Press Delete key</span>
               <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} className="text-xs h-7 ml-auto">Clear</Button>
             </div>
           )}
@@ -495,7 +507,7 @@ export default function CsvManager() {
                     <th className="p-3 w-12">
                       <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} className="accent-primary w-5 h-5 cursor-pointer" />
                     </th>
-                    {['Name', 'Phone', 'Rating', 'Tier', 'Score', 'Urgency', 'Website', 'Hours', 'Notes', 'Called', ''].map(h => (
+                    {['Name', 'Phone', 'Rating', 'Tier', 'Score', 'Urgency', 'Website', 'Hours', 'Category', 'Notes', 'Called', ''].map(h => (
                       <th key={h} className="text-left p-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -517,15 +529,16 @@ export default function CsvManager() {
                       <td className="p-3"><span className={c.outreach_tier === 1 ? 'badge-tier1' : c.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3'}>T{c.outreach_tier}</span></td>
                       <td className="p-3">{c.conversion_confidence_score > 0 ? `${c.conversion_confidence_score}%` : '—'}</td>
                       <td className="p-3">{c.average_urgency || '—'}</td>
-                      <td className="p-3">{c.website ? '✓' : '✗'}</td>
+                      <td className="p-3">{isValidWebsite(c.website) ? '✓' : '✗'}</td>
                       <td className="p-3 max-w-[120px]">
                         {c.opening_hours ? (
                           <span className="text-xs text-muted-foreground flex items-center gap-1 truncate" title={c.opening_hours}>
                             <Clock className="w-3 h-3 shrink-0" />
-                            {c.opening_hours.slice(0, 25)}{c.opening_hours.length > 25 ? '…' : ''}
+                            {getTodayHours(c.opening_hours)}
                           </span>
                         ) : '—'}
                       </td>
+                      <td className="p-3 text-xs text-muted-foreground">{c.category || '—'}</td>
                       <td className="p-3">
                         {editingNote === c.id ? (
                           <div className="flex gap-1">

@@ -79,6 +79,25 @@ export function isCurrentlyOpen(hours: string): boolean {
   return false;
 }
 
+/** Returns the closing time in minutes for today, or null if not found/closed */
+export function getClosingMinutes(hours: string): number | null {
+  if (!hours || !hours.trim()) return null;
+  const currentDay = new Date().getDay();
+  const entries = hours.split(/[,;|]/).map(e => e.trim()).filter(Boolean);
+  for (const entry of entries) {
+    const match = entry.match(/^([a-zA-Z]+(?:\s*[-–—]\s*[a-zA-Z]+)?)\s*[:\s]\s*(.+)$/);
+    if (match) {
+      const dayPart = match[1].trim().toLowerCase();
+      const timePart = match[2].trim();
+      if (!isDayMatch(dayPart, currentDay)) continue;
+      if (timePart.toLowerCase() === 'closed') return null;
+      const timeRange = parseTimeRange(timePart);
+      if (timeRange) return timeRange.end;
+    }
+  }
+  return null;
+}
+
 export function isFollowUpDue(followUpDate: string): boolean {
   if (!followUpDate) return false;
   return new Date(followUpDate) <= new Date();
@@ -103,7 +122,6 @@ export function parseAllDayHours(hoursStr: string): ParsedDayHours[] {
       const dayPart = match[1].trim();
       const timePart = match[2].trim();
       
-      // Check if it's a day range
       const rangeParts = dayPart.split(/\s*[-–—]\s*/);
       if (rangeParts.length === 2) {
         const startDay = DAY_NAMES[rangeParts[0].toLowerCase().trim()];
@@ -136,7 +154,6 @@ export function parseAllDayHours(hoursStr: string): ParsedDayHours[] {
     }
   }
   
-  // Sort by day, starting from today
   results.sort((a, b) => {
     const aOffset = (a.dayIndex - currentDay + 7) % 7;
     const bOffset = (b.dayIndex - currentDay + 7) % 7;

@@ -4,7 +4,7 @@ import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -16,7 +16,7 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean) => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number) => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
@@ -26,6 +26,8 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
   const [keepRecording, setKeepRecording] = useState(true);
+  const [callRating, setCallRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
   const settings = getSettings();
 
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -35,26 +37,9 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
     setActions(prev => {
       const next = new Set(prev);
       if (next.has(action)) next.delete(action); else next.add(action);
-      // Mutually exclusive outcomes
-      if (action === 'no_answer' && next.has(action)) {
-        next.delete('phone_not_working');
-        next.delete('not_interested');
-        next.delete('revert_uncalled');
-      }
-      if (action === 'phone_not_working' && next.has(action)) {
-        next.delete('no_answer');
-        next.delete('not_interested');
-        next.delete('revert_uncalled');
-      }
-      if (action === 'not_interested' && next.has(action)) {
-        next.delete('no_answer');
-        next.delete('phone_not_working');
-        next.delete('revert_uncalled');
-      }
-      if (action === 'revert_uncalled' && next.has(action)) {
-        next.delete('no_answer');
-        next.delete('phone_not_working');
-        next.delete('not_interested');
+      const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'not_interested', 'revert_uncalled'];
+      if (exclusiveOutcomes.includes(action) && next.has(action)) {
+        exclusiveOutcomes.filter(a => a !== action).forEach(a => next.delete(a));
       }
       return next;
     });
@@ -86,14 +71,41 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 animate-fade-in-scale">
         <h2 className="text-xl font-bold mb-1">{title}</h2>
-        <p className="text-sm text-muted-foreground mb-6">Duration: {Math.floor(duration / 60)}m {duration % 60}s</p>
+        <p className="text-sm text-muted-foreground mb-4">Duration: {Math.floor(duration / 60)}m {duration % 60}s</p>
+
+        {/* Call Rating */}
+        <div className="glass-card p-3 mb-4">
+          <p className="text-sm font-medium mb-2">How did the call go?</p>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map(star => (
+              <button
+                key={star}
+                onClick={() => setCallRating(star === callRating ? 0 : star)}
+                onMouseEnter={() => setHoverRating(star)}
+                onMouseLeave={() => setHoverRating(0)}
+                className="p-0.5 transition-transform hover:scale-110"
+              >
+                <Star
+                  className={`w-6 h-6 transition-colors ${
+                    star <= (hoverRating || callRating)
+                      ? 'text-warning fill-warning'
+                      : 'text-muted-foreground'
+                  }`}
+                />
+              </button>
+            ))}
+            {callRating > 0 && (
+              <span className="text-xs text-muted-foreground ml-2">{callRating}/5</span>
+            )}
+          </div>
+        </div>
 
         {/* Recording decision */}
         {recordingBlob && (
@@ -137,7 +149,6 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
         <div className="space-y-3 mb-6">
           <p className="text-sm font-medium">Call Outcome</p>
 
-          {/* No Answer */}
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('no_answer')} onChange={() => toggleAction('no_answer')} className="accent-primary w-4 h-4" />
             <PhoneMissed className="w-4 h-4 text-warning" />
@@ -145,7 +156,6 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
           </label>
 
-          {/* Phone Not Working */}
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('phone_not_working')} onChange={() => toggleAction('phone_not_working')} className="accent-primary w-4 h-4" />
             <PhoneOff className="w-4 h-4 text-destructive" />
@@ -153,7 +163,6 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
           </label>
 
-          {/* Revert to uncalled */}
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('revert_uncalled')} onChange={() => toggleAction('revert_uncalled')} className="accent-primary w-4 h-4" />
             <Undo2 className="w-4 h-4 text-primary" />

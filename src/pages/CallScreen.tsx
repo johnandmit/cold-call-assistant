@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
-import { getSettings, addCall, updateContact } from '@/lib/storage';
+import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage';
 import { fetchSuggestions } from '@/lib/gemini';
-import { suppressContact, recordCallOutcome } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock } from 'lucide-react';
+import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
@@ -15,6 +15,8 @@ export default function CallScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const contact = (location.state as any)?.contact as Contact | undefined;
+  const queueIds = (location.state as any)?.queueIds as string[] | undefined;
+  const currentQueueIndex = (location.state as any)?.queueIndex as number | undefined;
 
   const [transcript, setTranscript] = useState('');
   const [interimText, setInterimText] = useState('');
@@ -26,6 +28,7 @@ export default function CallScreen() {
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [showBusinessInfo, setShowBusinessInfo] = useState(true);
+  const [isManualRecording, setIsManualRecording] = useState(false);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -70,7 +73,6 @@ export default function CallScreen() {
         }
       }
 
-      // Start recording on first speech detection
       if ((final || interim) && !speechDetectedRef.current) {
         speechDetectedRef.current = true;
         startRecording();
@@ -104,7 +106,6 @@ export default function CallScreen() {
     }
   }, [callActive]);
 
-  // Get microphone access immediately but don't start recording until speech
   useEffect(() => {
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
       mediaStreamRef.current = stream;
@@ -128,7 +129,22 @@ export default function CallScreen() {
     mr.start(1000);
   }, []);
 
-  // Auto-scroll transcript
+  const stopRecording = useCallback(() => {
+    if (!recordingStartedRef.current) return;
+    try { mediaRecorderRef.current?.stop(); } catch {}
+    recordingStartedRef.current = false;
+  }, []);
+
+  const toggleManualRecording = () => {
+    if (isManualRecording) {
+      stopRecording();
+      setIsManualRecording(false);
+    } else {
+      startRecording();
+      setIsManualRecording(true);
+    }
+  };
+
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -163,15 +179,23 @@ export default function CallScreen() {
     setCallActive(false);
     try { recognitionRef.current?.stop(); } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
-    // Stop stream tracks if recording never started
     if (!recordingStartedRef.current) {
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
     }
     setShowPostCall(true);
   }, []);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean) => {
+  const exitWithoutLogging = useCallback(() => {
+    setCallActive(false);
+    try { recognitionRef.current?.stop(); } catch {}
+    try { mediaRecorderRef.current?.stop(); } catch {}
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    navigate('/');
+  }, [navigate]);
+
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number) => {
     if (contact) {
+      const session = getOrCreateActiveSession();
       const callId = v4();
       const now = new Date().toISOString();
       const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.webm`;
@@ -188,6 +212,9 @@ export default function CallScreen() {
         recording_drive_url: '',
         notes,
         actions_taken: actions,
+        call_rating: callRating || 0,
+        session_id: session.id,
+        category: contact.category || '',
       });
 
       const isRevert = actions.includes('revert_uncalled');
@@ -202,12 +229,10 @@ export default function CallScreen() {
         call_outcome: outcome || '',
       });
 
-      // Suppress for session if no answer / phone not working
       if (isSuppressed) {
         suppressContact(contact.id);
       }
 
-      // Record session stats
       recordCallOutcome(outcome || 'completed');
     }
 
@@ -225,8 +250,23 @@ export default function CallScreen() {
       }
     }
 
-    // Stop remaining tracks
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+
+    // Auto-advance to next lead in queue
+    if (queueIds && currentQueueIndex !== undefined) {
+      const nextIndex = currentQueueIndex + 1;
+      if (nextIndex < queueIds.length) {
+        const allContacts = getContacts();
+        const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
+        if (nextContact) {
+          navigate('/call', {
+            state: { contact: nextContact, queueIds, queueIndex: nextIndex },
+            replace: true,
+          });
+          return;
+        }
+      }
+    }
 
     navigate('/');
   };
@@ -268,14 +308,32 @@ export default function CallScreen() {
             {showBusinessInfo ? 'Hide Info' : 'Show Info'}
           </Button>
         </div>
-        <div className="flex items-center gap-4">
-          {speechDetectedRef.current && (
+        <div className="flex items-center gap-3">
+          {/* Manual recording toggle */}
+          <Button
+            variant={recordingStartedRef.current || isManualRecording ? 'destructive' : 'outline'}
+            size="sm"
+            onClick={toggleManualRecording}
+            className="gap-1.5 text-xs h-8"
+          >
+            {recordingStartedRef.current || isManualRecording ? (
+              <><MicOff className="w-3.5 h-3.5" /> Stop Rec</>
+            ) : (
+              <><Mic className="w-3.5 h-3.5" /> Start Rec</>
+            )}
+          </Button>
+
+          {(speechDetectedRef.current || isManualRecording) && (
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
               <span className="text-xs font-semibold text-destructive">REC</span>
             </div>
           )}
           <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+          <Button onClick={exitWithoutLogging} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
+            <LogOut className="w-3.5 h-3.5" />
+            Exit
+          </Button>
           <Button onClick={endCall} variant="destructive" className="font-semibold gap-2 rounded-lg">
             <Phone className="w-4 h-4 rotate-[135deg]" />
             End Call
@@ -310,6 +368,9 @@ export default function CallScreen() {
               <span className="text-xs">{getTodayHours(contact.opening_hours)}</span>
             </div>
           )}
+          {contact.category && (
+            <span className="text-xs bg-accent px-2 py-0.5 rounded text-accent-foreground">{contact.category}</span>
+          )}
           {contact.outreach_tier && (
             <span className={contact.outreach_tier === 1 ? 'badge-tier1' : contact.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3'}>
               T{contact.outreach_tier}
@@ -322,7 +383,7 @@ export default function CallScreen() {
       <div className="flex-1 flex min-h-0">
         {/* Transcript */}
         <div className="w-[65%] border-r border-border flex flex-col relative">
-          {callActive && speechDetectedRef.current && (
+          {callActive && (speechDetectedRef.current || isManualRecording) && (
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
               <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
               <span className="text-xs font-semibold text-destructive">REC</span>
