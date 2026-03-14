@@ -192,7 +192,7 @@ export default function CallScreen() {
     try { recognitionRef.current?.stop(); } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    navigate('/');
+    navigate('/queue');
   }, [navigate]);
 
   const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number) => {
