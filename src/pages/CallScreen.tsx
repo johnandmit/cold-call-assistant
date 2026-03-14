@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
 import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage';
+import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
 import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff } from 'lucide-react';
