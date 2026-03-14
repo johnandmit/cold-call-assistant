@@ -249,6 +249,22 @@ export default function CallScreen() {
         a.click();
         URL.revokeObjectURL(url);
       }
+      if ((settings.recordingSaveMode === 'drive' || settings.recordingSaveMode === 'both') && settings.driveConnected) {
+        uploadToDrive(recordingBlob, filename)
+          .then(driveUrl => {
+            updateContact(contact.id, { call_recording_drive_url: driveUrl });
+          })
+          .catch(err => {
+            console.error('Drive upload failed:', err);
+            // Fallback: download locally if drive fails
+            const url = URL.createObjectURL(recordingBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+          });
+      }
     }
 
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
