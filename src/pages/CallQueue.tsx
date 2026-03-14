@@ -130,7 +130,8 @@ export default function CallQueue() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this lead permanently?')) return;
+    const settings = getSettings();
+    if (settings.confirmBeforeDelete && !window.confirm('Delete this lead permanently?')) return;
     const updated = contacts.filter(c => c.id !== id);
     saveContacts(updated);
     setContacts(updated);
