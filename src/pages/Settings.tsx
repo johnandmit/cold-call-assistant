@@ -5,11 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X } from 'lucide-react';
+import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const TIMES = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
+
+// Google OAuth config — replace with your own client ID when deployed
+const GOOGLE_CLIENT_ID = '';
+const GOOGLE_REDIRECT_URI = window.location.origin + '/settings';
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsType>(DEFAULT_SETTINGS);
@@ -17,7 +22,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const loaded = getSettings();
-    // Migrate legacy single key
     if (loaded.geminiApiKey && (!loaded.geminiApiKeys || loaded.geminiApiKeys.length === 0)) {
       loaded.geminiApiKeys = [loaded.geminiApiKey];
     }
@@ -25,12 +29,37 @@ export default function SettingsPage() {
     setSettings(loaded);
   }, []);
 
+  // Handle Google OAuth callback
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('access_token')) {
+      const params = new URLSearchParams(hash.slice(1));
+      const token = params.get('access_token');
+      if (token) {
+        // Fetch user email
+        fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(data => {
+            update({ driveConnected: true, driveToken: token, driveEmail: data.email || 'Connected' });
+            toast.success('Google Drive connected!');
+            window.history.replaceState(null, '', window.location.pathname);
+          })
+          .catch(() => {
+            update({ driveConnected: true, driveToken: token, driveEmail: '' });
+            toast.success('Google Drive connected');
+            window.history.replaceState(null, '', window.location.pathname);
+          });
+      }
+    }
+  }, []);
+
   const update = (patch: Partial<SettingsType>) => {
     setSettings(prev => ({ ...prev, ...patch }));
   };
 
   const save = () => {
-    // Keep legacy key in sync
     const toSave = { ...settings, geminiApiKey: settings.geminiApiKeys[0] || '' };
     saveSettings(toSave);
     toast.success('Settings saved');
@@ -58,6 +87,20 @@ export default function SettingsPage() {
     update({ schedule });
   };
 
+  const connectGoogleDrive = () => {
+    if (!GOOGLE_CLIENT_ID) {
+      toast.error('Google OAuth Client ID not configured. Add your Client ID in the Settings source code or environment.');
+      return;
+    }
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(GOOGLE_REDIRECT_URI)}&response_type=token&scope=${encodeURIComponent(GOOGLE_SCOPES)}&prompt=consent`;
+    window.location.href = authUrl;
+  };
+
+  const disconnectDrive = () => {
+    update({ driveConnected: false, driveToken: '', driveEmail: '', driveFolderId: '' });
+    toast.success('Google Drive disconnected');
+  };
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -75,12 +118,30 @@ export default function SettingsPage() {
             <FileText className="w-4 h-4 text-primary" />
             <h2 className="font-semibold">Sales Script / AI Context</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">This text is sent to the AI with every suggestion request. Include your script, common objections, product details, and goals.</p>
+          <p className="text-xs text-muted-foreground mb-3">This text is sent to the AI with every suggestion request.</p>
           <Textarea
             value={settings.salesScript}
             onChange={e => update({ salesScript: e.target.value })}
             placeholder="Enter your sales script, product info, and talking points..."
             className="min-h-[150px] bg-input border-border font-mono text-xs"
+          />
+        </section>
+
+        {/* Transcription API Key */}
+        <section className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Mic className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">Transcription API Key</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Optional. If not provided, calls will still record but transcription and AI suggestions will be disabled. Uses browser speech recognition by default — add a key for enhanced accuracy.
+          </p>
+          <Input
+            type="password"
+            value={settings.transcriptionApiKey || ''}
+            onChange={e => update({ transcriptionApiKey: e.target.value })}
+            placeholder="Enter transcription API key..."
+            className="bg-input border-border font-mono text-sm"
           />
         </section>
 
@@ -97,7 +158,6 @@ export default function SettingsPage() {
             </a>
           </p>
 
-          {/* Existing keys */}
           <div className="space-y-2 mb-3">
             {settings.geminiApiKeys.map((key, idx) => (
               <div key={idx} className="flex items-center gap-2 glass-card p-2">
@@ -115,7 +175,6 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Add new key */}
           <div className="flex gap-2">
             <Input
               type="password"
@@ -184,6 +243,26 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Confirm before delete */}
+        <section className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Trash2 className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">Delete Confirmation</h2>
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.confirmBeforeDelete}
+              onChange={e => update({ confirmBeforeDelete: e.target.checked })}
+              className="accent-primary w-4 h-4"
+            />
+            <div>
+              <span className="text-sm font-medium">Ask for confirmation before deleting leads</span>
+              <p className="text-xs text-muted-foreground">When disabled, leads are deleted immediately without a prompt.</p>
+            </div>
+          </label>
+        </section>
+
         {/* Call Schedule */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -223,14 +302,36 @@ export default function SettingsPage() {
           </div>
           <p className="text-xs text-muted-foreground mb-3">Connect Google Drive to automatically upload call recordings.</p>
           {settings.driveConnected ? (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-success">Connected: {settings.driveEmail || 'Account linked'}</span>
-              <Button variant="outline" size="sm" onClick={() => { update({ driveConnected: false, driveToken: '', driveEmail: '' }); toast.success('Disconnected'); }}>
-                Disconnect
-              </Button>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-success">✓ Connected: {settings.driveEmail || 'Account linked'}</span>
+                <Button variant="outline" size="sm" onClick={disconnectDrive}>
+                  Disconnect
+                </Button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Drive Folder ID (optional)</label>
+                <Input
+                  value={settings.driveFolderId || ''}
+                  onChange={e => update({ driveFolderId: e.target.value })}
+                  placeholder="Leave empty to upload to root"
+                  className="bg-input border-border text-sm"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Find the folder ID in the Google Drive URL after /folders/</p>
+              </div>
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Google Drive integration requires a Google Cloud project with OAuth configured. This feature is available when deployed with proper OAuth credentials.</p>
+            <div className="space-y-3">
+              <Button onClick={connectGoogleDrive} className="gap-2">
+                <HardDrive className="w-4 h-4" />
+                Connect Google Drive
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {!GOOGLE_CLIENT_ID
+                  ? 'To enable Google Drive, add your Google OAuth Client ID in the app configuration. You can create one at the Google Cloud Console → APIs & Services → Credentials.'
+                  : 'Click to authorize access to upload recordings to your Google Drive.'}
+              </p>
+            </div>
           )}
         </section>
       </div>
