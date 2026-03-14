@@ -254,6 +254,8 @@ export default function CsvManager() {
   };
 
   const deleteContact = (id: string) => {
+    const settings = getSettings();
+    if (settings.confirmBeforeDelete && !window.confirm('Delete this contact?')) return;
     const updated = contacts.filter(c => c.id !== id);
     saveContacts(updated);
     setContacts(updated);
