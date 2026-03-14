@@ -131,10 +131,13 @@ export default function SettingsPage() {
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <Mic className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Transcription API Key</h2>
+            <h2 className="font-semibold">Transcription API Key (Agora)</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">
-            Optional. If not provided, calls will still record but transcription and AI suggestions will be disabled. Uses browser speech recognition by default — add a key for enhanced accuracy.
+            Optional. If not provided, calls will still record but transcription and AI suggestions will be disabled.{' '}
+            <a href="https://www.agora.io/en/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+              Get an Agora API key <ExternalLink className="w-3 h-3" />
+            </a>
           </p>
           <Input
             type="password"

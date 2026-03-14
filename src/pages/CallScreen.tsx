@@ -277,16 +277,20 @@ export default function CallScreen() {
         const allContacts = getContacts();
         const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
         if (nextContact) {
-          navigate('/call', {
-            state: { contact: nextContact, queueIds, queueIndex: nextIndex },
-            replace: true,
-          });
+          // Navigate away briefly then to the next call to force remount
+          navigate('/queue', { replace: true });
+          setTimeout(() => {
+            navigate('/call', {
+              state: { contact: nextContact, queueIds, queueIndex: nextIndex },
+              replace: true,
+            });
+          }, 50);
           return;
         }
       }
     }
 
-    navigate('/');
+    navigate('/queue');
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
