@@ -42,14 +42,17 @@ export interface Call {
 export interface Settings {
   geminiApiKeys: string[];
   geminiApiKey: string;
+  transcriptionApiKey: string;
   salesScript: string;
   schedule: ScheduleEntry[];
   driveConnected: boolean;
   driveToken: string;
   driveEmail: string;
+  driveFolderId: string;
   suggestionRefreshRate: number;
   recordingSaveMode: 'local' | 'drive' | 'both';
   queueFilters: QueueFilterState;
+  confirmBeforeDelete: boolean;
 }
 
 export interface QueueFilterState {
