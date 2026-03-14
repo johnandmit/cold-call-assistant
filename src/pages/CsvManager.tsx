@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import { Contact, ColumnMapping, isValidWebsite } from '@/types';
-import { getContacts, saveContacts } from '@/lib/storage';
+import { getContacts, saveContacts, getSettings } from '@/lib/storage';
 import { autoDetectMappings, mapRowToContact, parseCalled } from '@/lib/csv-utils';
 import { getTodayHours } from '@/lib/hours-utils';
 import { v4 } from '@/lib/uuid';
