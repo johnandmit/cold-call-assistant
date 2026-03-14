@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from '@/types';
 import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
-import { isContactSuppressed, skipContact, getSkippedIds } from '@/lib/session';
+import { isContactSuppressed, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
 import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
