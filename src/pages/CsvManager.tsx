@@ -190,6 +190,23 @@ export default function CsvManager() {
     e.preventDefault();
     const id = filtered[idx]?.id;
     if (!id) return;
+
+    // Shift+click for range selection
+    if (e.shiftKey && lastClickedIdx !== null) {
+      const start = Math.min(lastClickedIdx, idx);
+      const end = Math.max(lastClickedIdx, idx);
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          const rid = filtered[i]?.id;
+          if (rid) next.add(rid);
+        }
+        return next;
+      });
+      return;
+    }
+
+    setLastClickedIdx(idx);
     const wasSelected = selectedIds.has(id);
     const mode = wasSelected ? 'deselect' : 'select';
     setIsDragging(true);
