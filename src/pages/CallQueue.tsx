@@ -182,6 +182,18 @@ export default function CallQueue() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Call Queue</h1>
         <div className="flex items-center gap-3">
+          {activeSession ? (
+            <>
+              <span className="text-xs text-muted-foreground">Session: {activeSession.name}</span>
+              <Button variant="outline" size="sm" onClick={handleEndSession} className="text-xs gap-1">
+                <Square className="w-3 h-3" /> End
+              </Button>
+            </>
+          ) : (
+            <Button variant="default" size="sm" onClick={handleStartSession} className="text-xs gap-1">
+              <Play className="w-3 h-3" /> Start Session
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')} className="text-xs gap-1">
             📊 Stats
           </Button>
