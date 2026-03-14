@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from '@/types';
 import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
-import { isContactSuppressed, skipContact, getSkippedIds } from '@/lib/session';
+import { isContactSuppressed, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -22,7 +22,18 @@ export default function CallQueue() {
   const [expandedHoursId, setExpandedHoursId] = useState<string | null>(null);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
+  const [activeSession, setActiveSessionState] = useState(getActiveSession());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
+
+  const handleStartSession = () => {
+    const s = startSession();
+    setActiveSessionState(s);
+  };
+
+  const handleEndSession = () => {
+    endActiveSession();
+    setActiveSessionState(null);
+  };
 
   // Load persisted filters from settings
   useEffect(() => {
@@ -130,7 +141,8 @@ export default function CallQueue() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!window.confirm('Delete this lead permanently?')) return;
+    const settings = getSettings();
+    if (settings.confirmBeforeDelete && !window.confirm('Delete this lead permanently?')) return;
     const updated = contacts.filter(c => c.id !== id);
     saveContacts(updated);
     setContacts(updated);
@@ -170,6 +182,18 @@ export default function CallQueue() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Call Queue</h1>
         <div className="flex items-center gap-3">
+          {activeSession ? (
+            <>
+              <span className="text-xs text-muted-foreground">Session: {activeSession.name}</span>
+              <Button variant="outline" size="sm" onClick={handleEndSession} className="text-xs gap-1">
+                <Square className="w-3 h-3" /> End
+              </Button>
+            </>
+          ) : (
+            <Button variant="default" size="sm" onClick={handleStartSession} className="text-xs gap-1">
+              <Play className="w-3 h-3" /> Start Session
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')} className="text-xs gap-1">
             📊 Stats
           </Button>

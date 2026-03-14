@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
 import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage';
+import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
 import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff } from 'lucide-react';
@@ -151,12 +152,13 @@ export default function CallScreen() {
     }
   }, [transcript, interimText]);
 
-  // AI Suggestions
+  // AI Suggestions — only if API keys are configured
   useEffect(() => {
     if (!callActive) return;
     const settings = getSettings();
     const keys = settings.geminiApiKeys.length > 0 ? settings.geminiApiKeys : (settings.geminiApiKey ? [settings.geminiApiKey] : []);
-    if (!keys.length) return;
+    if (!keys.length) return; // No keys = no suggestions, but recording still works
+
     const rate = (settings.suggestionRefreshRate || 10) * 1000;
 
     const fetchAI = async () => {
@@ -247,6 +249,22 @@ export default function CallScreen() {
         a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
+      }
+      if ((settings.recordingSaveMode === 'drive' || settings.recordingSaveMode === 'both') && settings.driveConnected) {
+        uploadToDrive(recordingBlob, filename)
+          .then(driveUrl => {
+            updateContact(contact.id, { call_recording_drive_url: driveUrl });
+          })
+          .catch(err => {
+            console.error('Drive upload failed:', err);
+            // Fallback: download locally if drive fails
+            const url = URL.createObjectURL(recordingBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+          });
       }
     }
 

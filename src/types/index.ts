@@ -42,14 +42,17 @@ export interface Call {
 export interface Settings {
   geminiApiKeys: string[];
   geminiApiKey: string;
+  transcriptionApiKey: string;
   salesScript: string;
   schedule: ScheduleEntry[];
   driveConnected: boolean;
   driveToken: string;
   driveEmail: string;
+  driveFolderId: string;
   suggestionRefreshRate: number;
   recordingSaveMode: 'local' | 'drive' | 'both';
   queueFilters: QueueFilterState;
+  confirmBeforeDelete: boolean;
 }
 
 export interface QueueFilterState {
@@ -100,6 +103,7 @@ export interface ColumnMapping {
 export const DEFAULT_SETTINGS: Settings = {
   geminiApiKeys: [],
   geminiApiKey: '',
+  transcriptionApiKey: '',
   salesScript: '',
   schedule: [
     { day: 'Monday', startTime: '09:00', endTime: '17:00' },
@@ -111,9 +115,11 @@ export const DEFAULT_SETTINGS: Settings = {
   driveConnected: false,
   driveToken: '',
   driveEmail: '',
+  driveFolderId: '',
   suggestionRefreshRate: 10,
   recordingSaveMode: 'local',
   queueFilters: DEFAULT_QUEUE_FILTERS,
+  confirmBeforeDelete: false,
 };
 
 // Named sessions

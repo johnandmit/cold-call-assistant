@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import { Contact, ColumnMapping, isValidWebsite } from '@/types';
-import { getContacts, saveContacts } from '@/lib/storage';
+import { getContacts, saveContacts, getSettings } from '@/lib/storage';
 import { autoDetectMappings, mapRowToContact, parseCalled } from '@/lib/csv-utils';
 import { getTodayHours } from '@/lib/hours-utils';
 import { v4 } from '@/lib/uuid';
@@ -45,6 +45,7 @@ export default function CsvManager() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartIdx, setDragStartIdx] = useState<number | null>(null);
   const [dragMode, setDragMode] = useState<'select' | 'deselect'>('select');
+  const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Delete key support
@@ -189,6 +190,23 @@ export default function CsvManager() {
     e.preventDefault();
     const id = filtered[idx]?.id;
     if (!id) return;
+
+    // Shift+click for range selection
+    if (e.shiftKey && lastClickedIdx !== null) {
+      const start = Math.min(lastClickedIdx, idx);
+      const end = Math.max(lastClickedIdx, idx);
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        for (let i = start; i <= end; i++) {
+          const rid = filtered[i]?.id;
+          if (rid) next.add(rid);
+        }
+        return next;
+      });
+      return;
+    }
+
+    setLastClickedIdx(idx);
     const wasSelected = selectedIds.has(id);
     const mode = wasSelected ? 'deselect' : 'select';
     setIsDragging(true);
@@ -236,6 +254,8 @@ export default function CsvManager() {
   };
 
   const deleteContact = (id: string) => {
+    const settings = getSettings();
+    if (settings.confirmBeforeDelete && !window.confirm('Delete this contact?')) return;
     const updated = contacts.filter(c => c.id !== id);
     saveContacts(updated);
     setContacts(updated);
