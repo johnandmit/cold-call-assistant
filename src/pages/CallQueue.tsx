@@ -22,7 +22,18 @@ export default function CallQueue() {
   const [expandedHoursId, setExpandedHoursId] = useState<string | null>(null);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
+  const [activeSession, setActiveSessionState] = useState(getActiveSession());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
+
+  const handleStartSession = () => {
+    const s = startSession();
+    setActiveSessionState(s);
+  };
+
+  const handleEndSession = () => {
+    endActiveSession();
+    setActiveSessionState(null);
+  };
 
   // Load persisted filters from settings
   useEffect(() => {
