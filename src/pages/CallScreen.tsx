@@ -152,12 +152,13 @@ export default function CallScreen() {
     }
   }, [transcript, interimText]);
 
-  // AI Suggestions
+  // AI Suggestions — only if API keys are configured
   useEffect(() => {
     if (!callActive) return;
     const settings = getSettings();
     const keys = settings.geminiApiKeys.length > 0 ? settings.geminiApiKeys : (settings.geminiApiKey ? [settings.geminiApiKey] : []);
-    if (!keys.length) return;
+    if (!keys.length) return; // No keys = no suggestions, but recording still works
+
     const rate = (settings.suggestionRefreshRate || 10) * 1000;
 
     const fetchAI = async () => {
