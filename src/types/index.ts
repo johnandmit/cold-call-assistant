@@ -20,6 +20,7 @@ export interface Contact {
   call_outcome: string;
   suppressed_until: string;
   category: string; // niche/category from CSV
+  hidden_from_queue?: boolean; // soft-removed: hidden from queue but kept in CSV
 }
 
 export interface Call {
@@ -35,6 +36,7 @@ export interface Call {
   notes: string;
   actions_taken: string[];
   call_rating: number; // 1-5 star rating
+  call_success?: boolean; // true = success, false = failed, undefined = not set
   session_id: string; // which session this call belongs to
   category: string; // contact's category/niche
 }
@@ -89,6 +91,8 @@ export const TARGET_FIELDS = [
   'name', 'phone', 'address', 'website', 'google_maps_url',
   'rating', 'review_count', 'conversion_confidence_score',
   'outreach_tier', 'average_urgency', 'opening_hours', 'called', 'category',
+  'notes', 'call_outcome', 'follow_up_date', 'call_date', 'not_interested',
+  'hidden_from_queue',
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];

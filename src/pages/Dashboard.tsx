@@ -4,7 +4,7 @@ import { getContacts, getCalls } from '@/lib/storage';
 import { getSessions, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import { Contact, Call, Session } from '@/types';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Phone, PhoneOff, PhoneMissed, CheckCircle, Users, Clock, Star, Play, Square, ChevronRight, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Phone, PhoneOff, PhoneMissed, CheckCircle, Users, Clock, Star, Play, Square, ChevronRight, ChevronDown, BarChart3, MapPin, Globe, FileText, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 const OUTCOME_LABELS: Record<string, { label: string; icon: typeof Phone; color: string }> = {
   interested: { label: 'Interested', icon: CheckCircle, color: 'text-success' },
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [calls, setCalls] = useState<Call[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
 
   useEffect(() => {
     setContacts(getContacts());
@@ -312,29 +313,112 @@ export default function Dashboard() {
           {/* Session Calls */}
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Calls in this session</h3>
           <div className="space-y-2">
-            {sessionCalls.map(call => (
-              <div key={call.id} className="glass-card p-3 flex items-center justify-between">
-                <div>
-                  <span className="font-medium text-sm">{call.contact_name}</span>
-                  {call.category && <span className="text-xs text-muted-foreground ml-2">({call.category})</span>}
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(call.started_at).toLocaleTimeString()} · {Math.floor(call.duration_seconds / 60)}m {call.duration_seconds % 60}s
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {call.call_rating > 0 && (
-                    <div className="flex items-center gap-0.5">
-                      {Array.from({ length: call.call_rating }).map((_, i) => (
-                        <Star key={i} className="w-3 h-3 text-warning fill-warning" />
+            {sessionCalls.map(call => {
+              const isExpanded = expandedCallId === call.id;
+              const callContact = contacts.find(co => co.id === call.contact_id);
+              return (
+                <div key={call.id} className="glass-card overflow-hidden">
+                  <button
+                    onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                    className="w-full p-3 flex items-center justify-between text-left hover:bg-accent/50 transition-colors"
+                  >
+                    <div>
+                      <span className="font-medium text-sm">{call.contact_name}</span>
+                      {call.category && <span className="text-xs text-muted-foreground ml-2">({call.category})</span>}
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(call.started_at).toLocaleTimeString()} · {Math.floor(call.duration_seconds / 60)}m {call.duration_seconds % 60}s
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {call.call_success === true && <ThumbsUp className="w-3.5 h-3.5 text-success" />}
+                      {call.call_success === false && <ThumbsDown className="w-3.5 h-3.5 text-destructive" />}
+                      {call.call_rating > 0 && (
+                        <div className="flex items-center gap-0.5">
+                          {Array.from({ length: call.call_rating }).map((_, i) => (
+                            <Star key={i} className="w-3 h-3 text-warning fill-warning" />
+                          ))}
+                        </div>
+                      )}
+                      {call.actions_taken.map(action => (
+                        <span key={action} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{action}</span>
                       ))}
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t border-border/50 p-4 space-y-3 animate-fade-in bg-muted/20">
+                      {/* Contact details */}
+                      {callContact && (
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Phone className="w-3 h-3" />
+                            <span className="font-mono">{callContact.phone}</span>
+                          </div>
+                          {callContact.address && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <MapPin className="w-3 h-3" />
+                              <span className="truncate">{callContact.address}</span>
+                            </div>
+                          )}
+                          {callContact.website && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Globe className="w-3 h-3" />
+                              <a href={callContact.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">{callContact.website}</a>
+                            </div>
+                          )}
+                          {callContact.category && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <span className="text-[10px] bg-accent px-1.5 py-0.5 rounded">{callContact.category}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {/* Call outcome */}
+                      {callContact?.call_outcome && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">Outcome:</span>
+                          <span className={`text-xs font-medium ${
+                            OUTCOME_LABELS[callContact.call_outcome]?.color || 'text-muted-foreground'
+                          }`}>
+                            {OUTCOME_LABELS[callContact.call_outcome]?.label || callContact.call_outcome}
+                          </span>
+                        </div>
+                      )}
+                      {/* Success/Fail */}
+                      {call.call_success !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">Result:</span>
+                          {call.call_success ? (
+                            <span className="text-xs font-medium text-success flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> Success</span>
+                          ) : (
+                            <span className="text-xs font-medium text-destructive flex items-center gap-1"><ThumbsDown className="w-3 h-3" /> Failed</span>
+                          )}
+                        </div>
+                      )}
+                      {/* Notes */}
+                      {call.notes && (
+                        <div>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <FileText className="w-3 h-3 text-muted-foreground" />
+                            <span className="text-xs font-medium text-muted-foreground">Notes</span>
+                          </div>
+                          <p className="text-sm bg-muted/50 rounded p-2 whitespace-pre-wrap">{call.notes}</p>
+                        </div>
+                      )}
+                      {/* Transcript */}
+                      {call.transcript && (
+                        <div>
+                          <span className="text-xs font-medium text-muted-foreground">Transcript</span>
+                          <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2 mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                            {call.transcript.length > 500 ? call.transcript.slice(0, 500) + '...' : call.transcript}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {call.actions_taken.map(action => (
-                    <span key={action} className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{action}</span>
-                  ))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {sessionCalls.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-8">No calls in this session yet</p>
             )}

@@ -4,7 +4,7 @@ import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2, Star } from 'lucide-react';
+import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2, Star, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -16,7 +16,7 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number) => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
@@ -28,6 +28,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const [keepRecording, setKeepRecording] = useState(true);
   const [callRating, setCallRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
+  const [callSuccess, setCallSuccess] = useState<boolean | null>(null);
   const settings = getSettings();
 
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -71,7 +72,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating, callSuccess ?? undefined);
   };
 
   return (
@@ -79,6 +80,31 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       <div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 animate-fade-in-scale">
         <h2 className="text-xl font-bold mb-1">{title}</h2>
         <p className="text-sm text-muted-foreground mb-4">Duration: {Math.floor(duration / 60)}m {duration % 60}s</p>
+
+        {/* Call Success/Fail Toggle */}
+        <div className="glass-card p-3 mb-4">
+          <p className="text-sm font-medium mb-2">Was the call a success?</p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant={callSuccess === true ? 'default' : 'outline'}
+              onClick={() => setCallSuccess(callSuccess === true ? null : true)}
+              className={`gap-1.5 text-xs flex-1 h-10 ${callSuccess === true ? 'bg-success hover:bg-success/90 text-success-foreground' : ''}`}
+            >
+              <ThumbsUp className="w-4 h-4" />
+              Success
+            </Button>
+            <Button
+              size="sm"
+              variant={callSuccess === false ? 'destructive' : 'outline'}
+              onClick={() => setCallSuccess(callSuccess === false ? null : false)}
+              className="gap-1.5 text-xs flex-1 h-10"
+            >
+              <ThumbsDown className="w-4 h-4" />
+              Failed
+            </Button>
+          </div>
+        </div>
 
         {/* Call Rating */}
         <div className="glass-card p-3 mb-4">
@@ -197,36 +223,88 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <span className="text-sm font-medium">Mark as Not Interested</span>
           </label>
 
+          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
+            <input type="checkbox" checked={actions.has('remove_from_queue')} onChange={() => toggleAction('remove_from_queue')} className="accent-primary w-4 h-4" />
+            <X className="w-4 h-4 text-muted-foreground" />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Remove from Queue</span>
+              <span className="text-xs text-muted-foreground block">Hidden from queue, kept in CSV for deduplication</span>
+            </div>
+          </label>
+
           <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('follow_up')} onChange={() => toggleAction('follow_up')} className="mt-0.5 accent-primary w-4 h-4" />
             <div className="flex-1">
               <span className="text-sm font-medium">Schedule Follow-up</span>
               {actions.has('follow_up') && (
-                <div className="mt-3 flex items-center gap-2 animate-fade-in">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs h-8", !followUpDate && "text-muted-foreground")}>
-                        <CalendarIcon className="w-3 h-3" />
-                        {followUpDate ? format(followUpDate, 'PPP') : 'Pick date'}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={followUpDate}
-                        onSelect={setFollowUpDate}
-                        disabled={(d) => d < new Date()}
-                        initialFocus
-                        className={cn("p-3 pointer-events-auto")}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  <Input
-                    type="time"
-                    value={followUpTime}
-                    onChange={e => setFollowUpTime(e.target.value)}
-                    className="w-28 h-8 text-xs bg-input border-border"
-                  />
+                <div className="mt-3 space-y-3 animate-fade-in">
+                  {/* Quick schedule buttons for same-day */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: 'In 30 min', mins: 30 },
+                      { label: 'In 1 hour', mins: 60 },
+                      { label: 'In 2 hours', mins: 120 },
+                      { label: 'In 3 hours', mins: 180 },
+                    ].map(opt => {
+                      const target = new Date(Date.now() + opt.mins * 60000);
+                      return (
+                        <Button
+                          key={opt.label}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7 px-2"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFollowUpDate(target);
+                            setFollowUpTime(`${target.getHours().toString().padStart(2, '0')}:${target.getMinutes().toString().padStart(2, '0')}`);
+                          }}
+                        >
+                          <Clock className="w-3 h-3 mr-1" />
+                          {opt.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {/* Date + time picker */}
+                  <div className="flex items-center gap-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className={cn("gap-1.5 text-xs h-8", !followUpDate && "text-muted-foreground")}>
+                          <CalendarIcon className="w-3 h-3" />
+                          {followUpDate ? (
+                            <>
+                              {format(followUpDate, 'PPP')}
+                              {followUpDate.toDateString() === new Date().toDateString() && (
+                                <span className="text-[10px] bg-primary/20 text-primary px-1 py-0.5 rounded ml-1">Today</span>
+                              )}
+                            </>
+                          ) : 'Pick date'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={followUpDate}
+                          onSelect={setFollowUpDate}
+                          disabled={(d) => {
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            return d < today;
+                          }}
+                          initialFocus
+                          className={cn("p-3 pointer-events-auto")}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <Input
+                      type="time"
+                      value={followUpTime}
+                      onChange={e => setFollowUpTime(e.target.value)}
+                      className="w-28 h-8 text-xs bg-input border-border"
+                    />
+                  </div>
                 </div>
               )}
             </div>

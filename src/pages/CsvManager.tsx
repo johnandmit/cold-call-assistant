@@ -18,6 +18,7 @@ type FilterState = {
   urgency: string;
   hasWebsite: string;
   calledStatus: string;
+  noteType: string;
 };
 
 const DEFAULT_FILTERS: FilterState = {
@@ -27,6 +28,7 @@ const DEFAULT_FILTERS: FilterState = {
   urgency: 'all',
   hasWebsite: 'all',
   calledStatus: 'all',
+  noteType: 'all',
 };
 
 export default function CsvManager() {
@@ -103,11 +105,12 @@ export default function CsvManager() {
     }
 
     const existing = getContacts();
-    const calledMapping = mappings.find(m => m.targetField === 'called');
-
     const newContacts: Contact[] = csvData.map(row => {
       const mapped = mapRowToContact(row, mappings);
+      const calledMapping = mappings.find(m => m.targetField === 'called');
       const calledRaw = calledMapping?.csvColumn ? row[calledMapping.csvColumn] : undefined;
+      const notInterestedMapping = mappings.find(m => m.targetField === 'not_interested');
+      const notInterestedRaw = notInterestedMapping?.csvColumn ? row[notInterestedMapping.csvColumn] : undefined;
       return {
         id: v4(),
         name: String(mapped.name || ''),
@@ -121,15 +124,20 @@ export default function CsvManager() {
         outreach_tier: Number(mapped.outreach_tier) || 3,
         average_urgency: (['High', 'Medium', 'Low'].includes(String(mapped.average_urgency)) ? String(mapped.average_urgency) : '') as any,
         opening_hours: String(mapped.opening_hours || ''),
-        notes: '',
+        notes: String(mapped.notes || ''),
         called: parseCalled(calledRaw),
-        call_date: '',
+        call_date: String(mapped.call_date || ''),
         call_recording_drive_url: '',
-        not_interested: false,
-        follow_up_date: '',
-        call_outcome: '',
+        not_interested: parseCalled(notInterestedRaw),
+        follow_up_date: String(mapped.follow_up_date || ''),
+        call_outcome: String(mapped.call_outcome || ''),
         suppressed_until: '',
         category: String(mapped.category || ''),
+        hidden_from_queue: (() => {
+          const hiddenMapping = mappings.find(m => m.targetField === 'hidden_from_queue');
+          const hiddenRaw = hiddenMapping?.csvColumn ? row[hiddenMapping.csvColumn] : undefined;
+          return parseCalled(hiddenRaw);
+        })(),
       };
     }).filter(c => c.name && c.phone);
 
@@ -147,7 +155,29 @@ export default function CsvManager() {
   };
 
   const exportCsv = () => {
-    const csv = Papa.unparse(contacts);
+    // Export all contact fields for full session portability
+    const exportData = contacts.map(c => ({
+      name: c.name,
+      phone: c.phone,
+      address: c.address,
+      website: c.website,
+      google_maps_url: c.google_maps_url,
+      rating: c.rating,
+      review_count: c.review_count,
+      conversion_confidence_score: c.conversion_confidence_score,
+      outreach_tier: c.outreach_tier,
+      average_urgency: c.average_urgency,
+      opening_hours: c.opening_hours,
+      category: c.category,
+      notes: c.notes,
+      called: c.called ? 'yes' : 'no',
+      call_date: c.call_date,
+      call_outcome: c.call_outcome,
+      follow_up_date: c.follow_up_date,
+      not_interested: c.not_interested ? 'yes' : 'no',
+      hidden_from_queue: c.hidden_from_queue ? 'yes' : 'no',
+    }));
+    const csv = Papa.unparse(exportData);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -285,6 +315,11 @@ export default function CsvManager() {
     if (filters.hasWebsite === 'no') list = list.filter(c => !isValidWebsite(c.website));
     if (filters.calledStatus === 'yes') list = list.filter(c => c.called);
     if (filters.calledStatus === 'no') list = list.filter(c => !c.called);
+    if (filters.noteType === 'follow_up') list = list.filter(c => c.follow_up_date);
+    if (filters.noteType === 'not_interested') list = list.filter(c => c.not_interested);
+    if (filters.noteType === 'warm_lead') list = list.filter(c => c.notes && c.notes.trim().length > 0 && !c.not_interested);
+    if (filters.noteType === 'has_outcome') list = list.filter(c => c.call_outcome && c.call_outcome.trim().length > 0);
+    if (filters.noteType === 'no_notes') list = list.filter(c => !c.notes || c.notes.trim().length === 0);
     return list;
   }, [contacts, search, filters]);
 
@@ -496,6 +531,17 @@ export default function CsvManager() {
                   <option value="all">All</option>
                   <option value="yes">Called</option>
                   <option value="no">Not called</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Lead Status</label>
+                <select value={filters.noteType} onChange={e => setFilters(f => ({ ...f, noteType: e.target.value }))} className="w-full h-8 rounded-md border border-border bg-input px-2 text-sm">
+                  <option value="all">All</option>
+                  <option value="follow_up">Follow-up Due</option>
+                  <option value="not_interested">Not Interested</option>
+                  <option value="warm_lead">Warm Leads (has notes)</option>
+                  <option value="has_outcome">Has Outcome</option>
+                  <option value="no_notes">No Notes</option>
                 </select>
               </div>
               <div className="flex items-end">

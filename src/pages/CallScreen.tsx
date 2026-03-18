@@ -5,12 +5,14 @@ import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage'
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff } from 'lucide-react';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
 import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
+import { convertToMp3 } from '@/lib/mp3-encoder';
+import { toast } from 'sonner';
 
 export default function CallScreen() {
   const navigate = useNavigate();
@@ -30,6 +32,7 @@ export default function CallScreen() {
   const [speechSupported, setSpeechSupported] = useState(true);
   const [showBusinessInfo, setShowBusinessInfo] = useState(true);
   const [isManualRecording, setIsManualRecording] = useState(false);
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -53,6 +56,13 @@ export default function CallScreen() {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setSpeechSupported(false);
+      return;
+    }
+
+    // Gate transcription behind Agora key
+    const settings = getSettings();
+    if (!settings.transcriptionApiKey) {
+      setTranscriptionEnabled(false);
       return;
     }
 
@@ -123,9 +133,15 @@ export default function CallScreen() {
     const mr = new MediaRecorder(stream);
     mediaRecorderRef.current = mr;
     mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    mr.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-      setRecordingBlob(blob);
+    mr.onstop = async () => {
+      const webmBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      try {
+        const mp3Blob = await convertToMp3(webmBlob);
+        setRecordingBlob(mp3Blob);
+      } catch (err) {
+        console.error('MP3 conversion failed, falling back to webm:', err);
+        setRecordingBlob(webmBlob);
+      }
     };
     mr.start(1000);
   }, []);
@@ -192,15 +208,15 @@ export default function CallScreen() {
     try { recognitionRef.current?.stop(); } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    navigate('/queue');
+    navigate('/');
   }, [navigate]);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number) => {
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => {
     if (contact) {
       const session = getOrCreateActiveSession();
       const callId = v4();
       const now = new Date().toISOString();
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.webm`;
+      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
 
       addCall({
         id: callId,
@@ -215,20 +231,24 @@ export default function CallScreen() {
         notes,
         actions_taken: actions,
         call_rating: callRating || 0,
+        call_success: callSuccess,
         session_id: session.id,
         category: contact.category || '',
       });
 
       const isRevert = actions.includes('revert_uncalled');
       const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
+      const didPickUp = !isRevert && !isSuppressed; // Only count as called if they actually picked up
+      const isRemoved = actions.includes('remove_from_queue');
 
       updateContact(contact.id, {
-        called: !isRevert,
-        call_date: isRevert ? '' : now,
+        called: didPickUp,
+        call_date: didPickUp ? now : (contact.call_date || ''),
         notes: notes || contact.notes,
         not_interested: actions.includes('not_interested'),
         follow_up_date: followUpDate || '',
         call_outcome: outcome || '',
+        hidden_from_queue: isRemoved || contact.hidden_from_queue,
       });
 
       if (isSuppressed) {
@@ -241,7 +261,7 @@ export default function CallScreen() {
     // Handle recording save
     const settings = getSettings();
     if (keepRecording && recordingBlob && contact) {
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.webm`;
+      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
       if (settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both') {
         const url = URL.createObjectURL(recordingBlob);
         const a = document.createElement('a');
@@ -270,15 +290,40 @@ export default function CallScreen() {
 
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
 
+    // Check for any due follow-ups before auto-advancing
+    const allContacts = getContacts();
+    const now = new Date();
+    const dueFollowUp = allContacts.find(c =>
+      c.follow_up_date &&
+      new Date(c.follow_up_date) <= now &&
+      c.id !== contact?.id &&
+      !c.not_interested
+    );
+
+    if (dueFollowUp) {
+      // Follow-up is due — prioritize it over the normal queue order
+      toast.info(`Follow-up due: ${dueFollowUp.name}`, {
+        description: 'Routing to follow-up contact...',
+        duration: 3000,
+      });
+      navigate('/', { replace: true });
+      setTimeout(() => {
+        navigate('/call', {
+          state: { contact: dueFollowUp, queueIds: queueIds || [dueFollowUp.id], queueIndex: 0 },
+          replace: true,
+        });
+      }, 50);
+      return;
+    }
+
     // Auto-advance to next lead in queue
     if (queueIds && currentQueueIndex !== undefined) {
       const nextIndex = currentQueueIndex + 1;
       if (nextIndex < queueIds.length) {
-        const allContacts = getContacts();
         const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
         if (nextContact) {
           // Navigate away briefly then to the next call to force remount
-          navigate('/queue', { replace: true });
+          navigate('/', { replace: true });
           setTimeout(() => {
             navigate('/call', {
               state: { contact: nextContact, queueIds, queueIndex: nextIndex },
@@ -290,7 +335,7 @@ export default function CallScreen() {
       }
     }
 
-    navigate('/queue');
+    navigate('/');
   };
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
@@ -414,6 +459,12 @@ export default function CallScreen() {
           {!speechSupported && (
             <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning">
               Live transcription requires Chrome or Edge
+            </div>
+          )}
+          {!transcriptionEnabled && (
+            <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Transcription disabled — add an Agora API key in Settings to enable. Recording still works via the manual button.</span>
             </div>
           )}
           <div ref={transcriptRef} className="flex-1 overflow-y-auto p-6 transcript-scroll">

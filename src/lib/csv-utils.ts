@@ -18,6 +18,12 @@ const FIELD_ALIASES: Record<TargetField, string[]> = {
   opening_hours: ['openinghours', 'hours', 'businesshours', 'operatinghours', 'workinghours'],
   called: ['called', 'contacted', 'reached', 'calledstatus'],
   category: ['category', 'niche', 'type', 'businesstype', 'industry', 'sector'],
+  notes: ['notes', 'note', 'comments', 'comment'],
+  call_outcome: ['calloutcome', 'outcome', 'result', 'callresult'],
+  follow_up_date: ['followupdate', 'followup', 'callback', 'callbackdate'],
+  call_date: ['calldate', 'datecalled', 'lastcall'],
+  not_interested: ['notinterested', 'declined', 'rejected'],
+  hidden_from_queue: ['hiddenfromqueue', 'hidden', 'removed', 'softremoved'],
 };
 
 // Only auto-detect with HIGH confidence (exact or very close match)

@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from '@/types';
 import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 
 export default function CallQueue() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -24,6 +25,17 @@ export default function CallQueue() {
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
   const [activeSession, setActiveSessionState] = useState(getActiveSession());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
+  const selectedRowRef = React.useRef<HTMLDivElement>(null);
+
+  // Read selectedId from navigation state (e.g. from GlobalSearch)
+  React.useEffect(() => {
+    const stateId = (location.state as any)?.selectedId;
+    if (stateId) {
+      setSelectedId(stateId);
+      // Clear the state so it doesn't persist on refresh
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   const handleStartSession = () => {
     const s = startSession();
@@ -55,6 +67,15 @@ export default function CallQueue() {
     setSkippedIds(getSkippedIds());
   }, []);
 
+  // Scroll to selected contact when it changes (e.g. from search)
+  React.useEffect(() => {
+    if (selectedId && selectedRowRef.current) {
+      setTimeout(() => {
+        selectedRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, [selectedId, contacts]);
+
   useEffect(() => {
     refreshContacts();
     const onFocus = () => refreshContacts();
@@ -71,7 +92,7 @@ export default function CallQueue() {
   }, [contacts]);
 
   const sortedContacts = useMemo(() => {
-    let filtered = contacts.filter(c => !c.not_interested && !isContactSuppressed(c.id) && !skippedIds.has(c.id));
+    let filtered = contacts.filter(c => !c.not_interested && !c.hidden_from_queue && !isContactSuppressed(c.id) && !skippedIds.has(c.id));
     if (search) {
       const s = search.toLowerCase();
       filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
@@ -322,6 +343,7 @@ export default function CallQueue() {
           return (
             <div key={contact.id}>
               <div
+                ref={contact.id === selectedId ? selectedRowRef : undefined}
                 onClick={() => setSelectedId(contact.id)}
                 className={`w-full flex items-center gap-4 px-4 py-3 rounded-lg text-left transition-all duration-200 cursor-pointer ${
                   contact.id === heroContact?.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-accent'

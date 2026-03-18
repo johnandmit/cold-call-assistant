@@ -38,24 +38,46 @@ export default function GlobalSearch() {
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
     const contacts = getContacts();
-    const s = query.toLowerCase().replace(/\D/g, '');
-    const textQuery = query.toLowerCase();
-    const matched = contacts.filter(c =>
-      c.name.toLowerCase().includes(textQuery) ||
-      c.phone.includes(textQuery) ||
-      c.phone.replace(/\D/g, '').includes(s) ||
-      c.address?.toLowerCase().includes(textQuery) ||
-      c.category?.toLowerCase().includes(textQuery)
-    ).slice(0, 10);
-    setResults(matched);
+    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const digitQuery = query.replace(/\D/g, '');
+
+    // Score each contact — all query words must match somewhere
+    const scored: { contact: Contact; score: number }[] = [];
+    for (const c of contacts) {
+      const nameLower = c.name.toLowerCase();
+      const phonePlain = c.phone.replace(/\D/g, '');
+      const categoryLower = (c.category || '').toLowerCase();
+
+      // Check if all query words match in name OR category
+      const allWordsMatch = queryWords.every(w =>
+        nameLower.includes(w) || categoryLower.includes(w)
+      );
+
+      // Phone number match (if query has digits)
+      const phoneMatch = digitQuery.length >= 3 && phonePlain.includes(digitQuery);
+
+      if (!allWordsMatch && !phoneMatch) continue;
+
+      // Score: name word-start matches = 10, name contains = 5, phone = 8, category = 3
+      let score = 0;
+      if (phoneMatch) score += 8;
+      for (const w of queryWords) {
+        if (nameLower.startsWith(w) || nameLower.includes(` ${w}`)) score += 10;
+        else if (nameLower.includes(w)) score += 5;
+        if (categoryLower.includes(w)) score += 3;
+      }
+
+      scored.push({ contact: c, score });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    setResults(scored.slice(0, 8).map(s => s.contact));
   }, [query]);
 
   const selectContact = (c: Contact) => {
     setOpen(false);
-    // Navigate to queue with this contact selected
-    if (location.pathname !== '/') {
-      navigate('/', { state: { selectedId: c.id } });
-    }
+    // Navigate to queue with this contact selected — always navigate even if on same page
+    navigate('/', { state: { selectedId: c.id }, replace: location.pathname === '/' });
   };
 
   if (!open) {
