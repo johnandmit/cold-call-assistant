@@ -5,7 +5,7 @@ import { getContacts, saveContacts, updateContact, getSettings, saveSettings } f
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
 import { isContactSuppressed, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, Trash2, ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -158,6 +158,13 @@ export default function CallQueue() {
     skipContact(id);
     setSkippedIds(prev => new Set([...prev, id]));
     toast.success('Skipped for the day');
+  };
+
+  const handleSuppressForever = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    updateContact(id, { hidden_from_queue: true });
+    refreshContacts();
+    toast.success('Hidden from queue forever');
   };
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
@@ -390,6 +397,9 @@ export default function CallQueue() {
                   </button>
                   <button onClick={(e) => handleSkip(e, contact.id)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Skip for the day">
                     <SkipForward className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={(e) => handleSuppressForever(e, contact.id)} className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground" title="Suppress forever">
+                    <EyeOff className="w-3.5 h-3.5" />
                   </button>
                   <button onClick={(e) => handleDelete(e, contact.id)} className="p-1.5 rounded hover:bg-destructive/20 transition-colors text-muted-foreground hover:text-destructive" title="Delete">
                     <Trash2 className="w-3.5 h-3.5" />
