@@ -42,6 +42,8 @@ export default function CsvManager() {
   const [noteText, setNoteText] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [conflicts, setConflicts] = useState<Contact[][]>([]);
+  const [resolvedContacts, setResolvedContacts] = useState<Contact[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [isDragging, setIsDragging] = useState(false);
@@ -141,17 +143,94 @@ export default function CsvManager() {
       };
     }).filter(c => c.name && c.phone);
 
-    const existingPhones = new Set(existing.map(c => c.phone.replace(/\D/g, '')));
-    const unique = newContacts.filter(c => !existingPhones.has(c.phone.replace(/\D/g, '')));
-    const dupeCount = newContacts.length - unique.length;
+    const hasMeaningfulData = (c: Contact) => {
+      return (c.notes?.trim().length > 0) || 
+             c.called || 
+             (c.call_outcome?.trim().length > 0) || 
+             c.not_interested || 
+             (c.follow_up_date?.trim().length > 0);
+    };
 
-    const merged = [...existing, ...unique];
-    saveContacts(merged);
-    setContacts(merged);
+    const isIdentical = (a: Contact, b: Contact) => {
+      const keys = Object.keys(a) as (keyof Contact)[];
+      for (const k of keys) {
+        if (k === 'id') continue;
+        if (a[k] !== b[k]) return false;
+      }
+      return true;
+    };
+
+    const normalizePhone = (p: string) => p.replace(/\D/g, '');
+
+    const phoneGroups = new Map<string, Contact[]>();
+    for (const c of [...existing, ...newContacts]) {
+      const p = normalizePhone(c.phone);
+      if (!p) continue;
+      if (!phoneGroups.has(p)) phoneGroups.set(p, []);
+      phoneGroups.get(p)!.push(c);
+    }
+
+    const autoResolved: Contact[] = [];
+    const pendingConflicts: Contact[][] = [];
+    let dupeCount = 0;
+
+    for (const group of phoneGroups.values()) {
+      if (group.length === 1) {
+        autoResolved.push(group[0]);
+        continue;
+      }
+      
+      dupeCount += group.length - 1;
+
+      // Group has multiple contacts. Let's find unique variants based on meaningful data
+      const dataContacts = group.filter(hasMeaningfulData);
+
+      if (dataContacts.length === 0) {
+        // No variant has notes/data, just keep the first one (prefer existing if it was first)
+        autoResolved.push(group[0]);
+      } else if (dataContacts.length === 1) {
+        // Only one variant has notes/data, keep it!
+        autoResolved.push(dataContacts[0]);
+      } else {
+        // Multiple variants have meaningful data. Deduplicate exact identical variants.
+        const uniqueVariants: Contact[] = [];
+        for (const dc of dataContacts) {
+          if (!uniqueVariants.some(v => isIdentical(v, dc))) {
+            uniqueVariants.push(dc);
+          }
+        }
+
+        if (uniqueVariants.length === 1) {
+          autoResolved.push(uniqueVariants[0]);
+        } else {
+          pendingConflicts.push(uniqueVariants);
+        }
+      }
+    }
+
+    if (pendingConflicts.length > 0) {
+      setConflicts(pendingConflicts);
+      setResolvedContacts(autoResolved);
+      setShowMapper(false);
+      return;
+    }
+
+    saveContacts(autoResolved);
+    setContacts(autoResolved);
     setShowMapper(false);
     setCsvData([]);
 
-    toast.success(`Imported ${unique.length} contacts${dupeCount > 0 ? `, ${dupeCount} duplicates skipped` : ''}`);
+    toast.success(`Imported/Merged successfully${dupeCount > 0 ? ` (${dupeCount} duplicates auto-resolved)` : ''}`);
+  };
+
+  const submitResolutions = (finalResolved: Contact[]) => {
+    const fullyMerged = [...resolvedContacts, ...finalResolved];
+    saveContacts(fullyMerged);
+    setContacts(fullyMerged);
+    setConflicts([]);
+    setResolvedContacts([]);
+    setCsvData([]);
+    toast.success(`Imported/Merged successfully (${finalResolved.length} conflicts resolved manually)`);
   };
 
   const exportCsv = () => {
@@ -476,6 +555,20 @@ export default function CsvManager() {
         </div>
       )}
 
+      {/* Conflict Resolution Modal */}
+      {conflicts.length > 0 && (
+        <ConflictResolver
+          conflicts={conflicts}
+          onResolve={submitResolutions}
+          onCancel={() => {
+            setConflicts([]);
+            setResolvedContacts([]);
+            setCsvData([]);
+            toast.error('Import cancelled');
+          }}
+        />
+      )}
+
       {/* Contacts Table */}
       {contacts.length > 0 && (
         <>
@@ -649,6 +742,77 @@ export default function CsvManager() {
           <p className="text-muted-foreground">No contacts yet — import a CSV to get started</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConflictResolver({ conflicts, onResolve, onCancel }: { conflicts: Contact[][], onResolve: (resolved: Contact[]) => void, onCancel: () => void }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [resolvedChoices, setResolvedChoices] = useState<Contact[]>([]);
+
+  const group = conflicts[currentIndex];
+
+  const handleKeep = (c: Contact) => {
+    const nextChoices = [...resolvedChoices, c];
+    if (currentIndex + 1 < conflicts.length) {
+      setResolvedChoices(nextChoices);
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      onResolve(nextChoices);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="glass-card w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden animate-fade-in-scale">
+        <div className="p-6 border-b border-border flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-xl font-bold text-warning flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Duplicate Conflict Resolution
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Conflict {currentIndex + 1} of {conflicts.length}: Multiple variants of this contact have notes or data. Keep one.
+            </p>
+          </div>
+          <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-2"><X className="w-5 h-5" /></button>
+        </div>
+        
+        <div className="p-6 overflow-y-auto flex-1 bg-muted/20">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {group.map((c, i) => (
+              <div key={i} className="glass-card p-4 flex flex-col">
+                <div className="flex-1 space-y-3 mb-4">
+                  <div>
+                    <div className="font-semibold">{c.name}</div>
+                    <div className="text-xs font-mono text-muted-foreground">{c.phone}</div>
+                  </div>
+                  
+                  {c.category && (
+                    <div className="text-xs">
+                      <span className="font-medium text-muted-foreground">Category:</span> {c.category}
+                    </div>
+                  )}
+
+                  <div className="text-xs bg-background/50 rounded-md p-3 border border-border">
+                    <span className="font-medium text-muted-foreground block mb-1">Notes:</span> 
+                    <div className="whitespace-pre-wrap">{c.notes || <span className="text-muted-foreground italic">None</span>}</div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {c.called && <span className="bg-success/20 text-success px-2 py-1 rounded">Called</span>}
+                    {c.not_interested && <span className="bg-destructive/20 text-destructive px-2 py-1 rounded">Not Interested</span>}
+                    {c.call_outcome && <span className="bg-accent text-accent-foreground px-2 py-1 rounded">Outcome: {c.call_outcome}</span>}
+                    {c.follow_up_date && <span className="bg-warning/20 text-warning px-2 py-1 rounded">Follow up: {c.follow_up_date}</span>}
+                  </div>
+                </div>
+                
+                <Button onClick={() => handleKeep(c)} className="w-full">Keep This Version</Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
