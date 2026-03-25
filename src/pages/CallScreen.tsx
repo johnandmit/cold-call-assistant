@@ -43,6 +43,7 @@ export default function CallScreen() {
   const transcriptAccRef = useRef('');
   const recordingStartedRef = useRef(false);
   const speechDetectedRef = useRef(false);
+  const recordingBlobResolverRef = useRef<((blob: Blob | null) => void) | null>(null);
 
   // Timer
   useEffect(() => {
@@ -117,9 +118,12 @@ export default function CallScreen() {
     }
   }, [callActive]);
 
+  // Auto-start recording as soon as mic stream is available
   useEffect(() => {
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
       mediaStreamRef.current = stream;
+      // Auto-start recording immediately
+      startRecording();
     }).catch(() => {});
     return () => {
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -129,27 +133,71 @@ export default function CallScreen() {
   const startRecording = useCallback(() => {
     if (recordingStartedRef.current || !mediaStreamRef.current) return;
     recordingStartedRef.current = true;
+    chunksRef.current = [];
     const stream = mediaStreamRef.current;
-    const mr = new MediaRecorder(stream);
+
+    // Pick best supported mime type
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : undefined;
+
+    const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     mediaRecorderRef.current = mr;
-    mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    mr.onstop = async () => {
-      const webmBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-      try {
-        const mp3Blob = await convertToMp3(webmBlob);
-        setRecordingBlob(mp3Blob);
-      } catch (err) {
-        console.error('MP3 conversion failed, falling back to webm:', err);
-        setRecordingBlob(webmBlob);
+
+    mr.ondataavailable = e => {
+      if (e.data && e.data.size > 0) {
+        chunksRef.current.push(e.data);
       }
     };
-    mr.start(1000);
+
+    mr.onstop = async () => {
+      // Build blob from accumulated chunks
+      const webmBlob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+      let finalBlob: Blob;
+      if (webmBlob.size > 0) {
+        try {
+          finalBlob = await convertToMp3(webmBlob);
+        } catch (err) {
+          console.error('MP3 conversion failed, using webm:', err);
+          finalBlob = webmBlob;
+        }
+      } else {
+        finalBlob = webmBlob;
+      }
+      setRecordingBlob(finalBlob);
+      // Resolve any waiting promise (endCall flow)
+      if (recordingBlobResolverRef.current) {
+        recordingBlobResolverRef.current(finalBlob);
+        recordingBlobResolverRef.current = null;
+      }
+    };
+
+    // Collect data every 500ms so chunks accumulate during the call
+    mr.start(500);
+    setIsManualRecording(true);
   }, []);
 
-  const stopRecording = useCallback(() => {
-    if (!recordingStartedRef.current) return;
-    try { mediaRecorderRef.current?.stop(); } catch {}
-    recordingStartedRef.current = false;
+  const stopRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise(resolve => {
+      if (!recordingStartedRef.current || !mediaRecorderRef.current) {
+        resolve(null);
+        return;
+      }
+      // Store resolver so onstop can fulfill it
+      recordingBlobResolverRef.current = resolve;
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        } else {
+          resolve(null);
+        }
+      } catch {
+        resolve(null);
+      }
+      recordingStartedRef.current = false;
+    });
   }, []);
 
   const toggleManualRecording = () => {
@@ -193,15 +241,14 @@ export default function CallScreen() {
     return () => { clearInterval(id); clearTimeout(initialTimeout); };
   }, [callActive]);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
     setCallActive(false);
     try { recognitionRef.current?.stop(); } catch {}
-    try { mediaRecorderRef.current?.stop(); } catch {}
-    if (!recordingStartedRef.current) {
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    }
+    // Wait for recording to finalize BEFORE cleaning up
+    const blob = await stopRecording();
+    if (blob) setRecordingBlob(blob);
     setShowPostCall(true);
-  }, []);
+  }, [stopRecording]);
 
   const exitWithoutLogging = useCallback(() => {
     setCallActive(false);
