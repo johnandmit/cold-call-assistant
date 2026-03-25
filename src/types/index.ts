@@ -55,6 +55,7 @@ export interface Settings {
   recordingSaveMode: 'local' | 'drive' | 'both';
   queueFilters: QueueFilterState;
   confirmBeforeDelete: boolean;
+  activeCampaignId: string;
 }
 
 export interface QueueFilterState {
@@ -124,7 +125,16 @@ export const DEFAULT_SETTINGS: Settings = {
   recordingSaveMode: 'local',
   queueFilters: DEFAULT_QUEUE_FILTERS,
   confirmBeforeDelete: false,
+  activeCampaignId: '',
 };
+
+// Campaigns
+export interface Campaign {
+  id: string;
+  name: string;
+  createdAt: string;
+  color: string; // hex color for visual badge
+}
 
 // Named sessions
 export interface Session {

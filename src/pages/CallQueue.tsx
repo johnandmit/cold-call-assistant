@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
+const PAGE_SIZE = 50;
+
 export default function CallQueue() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,6 +28,7 @@ export default function CallQueue() {
   const [activeSession, setActiveSessionState] = useState(getActiveSession());
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
   const selectedRowRef = React.useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Read selectedId from navigation state (e.g. from GlobalSearch)
   React.useEffect(() => {
@@ -340,7 +343,7 @@ export default function CallQueue() {
       )}
 
       <div className="space-y-1">
-        {sortedContacts.map(contact => {
+        {sortedContacts.slice(0, visibleCount).map(contact => {
           const isOpen = isCurrentlyOpen(contact.opening_hours);
           const isClosed = contact.opening_hours && !isOpen;
           const isFollowUp = contact.follow_up_date && isFollowUpDue(contact.follow_up_date);
@@ -437,6 +440,20 @@ export default function CallQueue() {
           );
         })}
       </div>
+
+      {/* Load More */}
+      {visibleCount < sortedContacts.length && (
+        <div className="flex justify-center pt-4 pb-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+            className="text-xs"
+          >
+            Load More ({sortedContacts.length - visibleCount} remaining)
+          </Button>
+        </div>
+      )}
 
       {/* Inline Edit Modal */}
       {editingContact && (

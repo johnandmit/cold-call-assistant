@@ -1,9 +1,14 @@
 import { Session } from '@/types';
 import { v4 } from '@/lib/uuid';
+import { getActiveCampaignId } from '@/lib/storage';
+
+function getSessionsKey(campaignId?: string): string {
+  const cid = campaignId || getActiveCampaignId();
+  return `sales-assistant-sessions-${cid}`;
+}
 
 const SUPPRESSED_KEY = 'sales-assistant-suppressed';
 const SKIPPED_KEY = 'sales-assistant-skipped';
-const SESSIONS_KEY = 'sales-assistant-sessions';
 const ACTIVE_SESSION_KEY = 'sales-assistant-active-session';
 
 // Suppression (session-level, persists for the day)
@@ -51,16 +56,16 @@ export function skipContact(id: string) {
   localStorage.setItem(SKIPPED_KEY, JSON.stringify([...set]));
 }
 
-// Named Sessions
-export function getSessions(): Session[] {
+// Named Sessions (campaign-scoped)
+export function getSessions(campaignId?: string): Session[] {
   try {
-    const data = localStorage.getItem(SESSIONS_KEY);
+    const data = localStorage.getItem(getSessionsKey(campaignId));
     return data ? JSON.parse(data) : [];
   } catch { return []; }
 }
 
-export function saveSessions(sessions: Session[]) {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+export function saveSessions(sessions: Session[], campaignId?: string) {
+  localStorage.setItem(getSessionsKey(campaignId), JSON.stringify(sessions));
 }
 
 function formatSessionName(date: Date): string {
@@ -73,7 +78,7 @@ function formatSessionName(date: Date): string {
   return `${day}${suffix} of ${month}, ${time}`;
 }
 
-export function startSession(): Session {
+export function startSession(campaignId?: string): Session {
   const now = new Date();
   const session: Session = {
     id: v4(),
@@ -83,47 +88,47 @@ export function startSession(): Session {
     callsMade: 0,
     outcomes: {},
   };
-  const sessions = getSessions();
+  const sessions = getSessions(campaignId);
   sessions.push(session);
-  saveSessions(sessions);
+  saveSessions(sessions, campaignId);
   localStorage.setItem(ACTIVE_SESSION_KEY, session.id);
   return session;
 }
 
-export function getActiveSession(): Session | null {
+export function getActiveSession(campaignId?: string): Session | null {
   const id = localStorage.getItem(ACTIVE_SESSION_KEY);
   if (!id) return null;
-  const sessions = getSessions();
+  const sessions = getSessions(campaignId);
   return sessions.find(s => s.id === id) || null;
 }
 
-export function getOrCreateActiveSession(): Session {
-  const existing = getActiveSession();
+export function getOrCreateActiveSession(campaignId?: string): Session {
+  const existing = getActiveSession(campaignId);
   if (existing) return existing;
-  return startSession();
+  return startSession(campaignId);
 }
 
-export function endActiveSession() {
+export function endActiveSession(campaignId?: string) {
   const id = localStorage.getItem(ACTIVE_SESSION_KEY);
   if (!id) return;
-  const sessions = getSessions();
+  const sessions = getSessions(campaignId);
   const idx = sessions.findIndex(s => s.id === id);
   if (idx !== -1) {
     sessions[idx].endedAt = new Date().toISOString();
-    saveSessions(sessions);
+    saveSessions(sessions, campaignId);
   }
   localStorage.removeItem(ACTIVE_SESSION_KEY);
 }
 
-export function recordCallOutcome(outcome: string) {
-  const session = getOrCreateActiveSession();
+export function recordCallOutcome(outcome: string, campaignId?: string) {
+  const session = getOrCreateActiveSession(campaignId);
   session.callsMade++;
   session.outcomes[outcome] = (session.outcomes[outcome] || 0) + 1;
-  const sessions = getSessions();
+  const sessions = getSessions(campaignId);
   const idx = sessions.findIndex(s => s.id === session.id);
   if (idx !== -1) {
     sessions[idx] = session;
-    saveSessions(sessions);
+    saveSessions(sessions, campaignId);
   }
 }
 
@@ -134,8 +139,8 @@ export interface SessionStats {
   outcomes: Record<string, number>;
 }
 
-export function getSessionStats(): SessionStats {
-  const session = getActiveSession();
+export function getSessionStats(campaignId?: string): SessionStats {
+  const session = getActiveSession(campaignId);
   if (session) {
     return { sessionStart: session.startedAt, callsMade: session.callsMade, outcomes: session.outcomes };
   }

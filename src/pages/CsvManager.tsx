@@ -1,15 +1,19 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import Papa from 'papaparse';
 import { Contact, ColumnMapping, isValidWebsite } from '@/types';
-import { getContacts, saveContacts, getSettings } from '@/lib/storage';
+import { getContacts, saveContacts, getSettings, getCampaigns, getActiveCampaignId, ensureCampaigns } from '@/lib/storage';
 import { autoDetectMappings, mapRowToContact, parseCalled } from '@/lib/csv-utils';
+import { checkCrossCampaignDuplicates, CrossCampaignMatch } from '@/lib/cross-campaign-check';
 import { getTodayHours } from '@/lib/hours-utils';
 import { v4 } from '@/lib/uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { Campaign } from '@/types';
 import { toast } from 'sonner';
+
+const CSV_PAGE_SIZE = 50;
 
 type FilterState = {
   minRating: number;
@@ -51,6 +55,12 @@ export default function CsvManager() {
   const [dragMode, setDragMode] = useState<'select' | 'deselect'>('select');
   const [lastClickedIdx, setLastClickedIdx] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [showCrossCheck, setShowCrossCheck] = useState(false);
+  const [crossCheckCampaigns, setCrossCheckCampaigns] = useState<Set<string>>(new Set());
+  const [crossCheckResults, setCrossCheckResults] = useState<CrossCampaignMatch[]>([]);
+  const [allCampaigns, setAllCampaigns] = useState<Campaign[]>([]);
+  const [activeCampaignId, setActiveCampaignIdState] = useState('');
+  const [csvVisibleCount, setCsvVisibleCount] = useState(CSV_PAGE_SIZE);
 
   // Delete key support
   useEffect(() => {
@@ -65,6 +75,13 @@ export default function CsvManager() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds]);
+
+  // Load campaigns on mount
+  useEffect(() => {
+    ensureCampaigns();
+    setAllCampaigns(getCampaigns());
+    setActiveCampaignIdState(getActiveCampaignId());
+  }, []);
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
@@ -431,6 +448,95 @@ export default function CsvManager() {
         <input ref={fileRef} type="file" accept=".csv" multiple onChange={e => handleFiles(e.target.files)} className="hidden" />
       </div>
 
+      {/* Cross-Campaign Duplicate Checker */}
+      {allCampaigns.length > 1 && (
+        <div className="glass-card mb-6 overflow-hidden">
+          <button
+            onClick={() => setShowCrossCheck(!showCrossCheck)}
+            className="w-full flex items-center justify-between p-4 hover:bg-accent/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-primary" />
+              <span className="font-medium text-sm">Cross-Campaign Lead Checker</span>
+              <span className="text-xs text-muted-foreground">Check for duplicate leads across campaigns</span>
+            </div>
+            {showCrossCheck ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </button>
+          {showCrossCheck && (
+            <div className="border-t border-border p-4 space-y-4 animate-fade-in">
+              <p className="text-xs text-muted-foreground">Select which campaigns to check against for duplicate leads:</p>
+              <div className="flex flex-wrap gap-2">
+                {allCampaigns.filter(c => c.id !== activeCampaignId).map(campaign => (
+                  <label key={campaign.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:border-primary/30 transition-colors cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={crossCheckCampaigns.has(campaign.id)}
+                      onChange={(e) => {
+                        setCrossCheckCampaigns(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(campaign.id);
+                          else next.delete(campaign.id);
+                          return next;
+                        });
+                      }}
+                      className="accent-primary"
+                    />
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: campaign.color }} />
+                    {campaign.name}
+                  </label>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={crossCheckCampaigns.size === 0}
+                onClick={() => {
+                  const results = checkCrossCampaignDuplicates(activeCampaignId, [...crossCheckCampaigns]);
+                  setCrossCheckResults(results);
+                  if (results.length === 0) {
+                    toast.success('No duplicates found across selected campaigns!');
+                  }
+                }}
+                className="gap-1.5"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Run Check ({crossCheckCampaigns.size} campaign{crossCheckCampaigns.size !== 1 ? 's' : ''})
+              </Button>
+
+              {/* Results */}
+              {crossCheckResults.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-warning flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" />
+                    {crossCheckResults.length} duplicate{crossCheckResults.length !== 1 ? 's' : ''} found
+                  </p>
+                  <div className="max-h-[400px] overflow-y-auto space-y-1">
+                    {crossCheckResults.map((match, i) => (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-warning/5 border border-warning/20 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium">{match.contact.name}</span>
+                          <span className="text-xs text-muted-foreground ml-2 font-mono">{match.contact.phone}</span>
+                        </div>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          match.matchType === 'phone' ? 'bg-destructive/20 text-destructive' : 'bg-warning/20 text-warning'
+                        }`}>
+                          {match.matchType === 'phone' ? 'Phone Match' : 'Name Match'}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span>↔</span>
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: allCampaigns.find(c => c.id === match.matchedCampaignId)?.color }} />
+                          <span>{match.matchedCampaignName}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Column Mapping Modal */}
       {showMapper && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -672,7 +778,7 @@ export default function CsvManager() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c, idx) => (
+                  {filtered.slice(0, csvVisibleCount).map((c, idx) => (
                     <tr
                       key={c.id}
                       className={`border-b border-border/50 transition-colors cursor-pointer ${c.called ? 'bg-success/5' : ''} ${selectedIds.has(c.id) ? 'bg-primary/10' : 'hover:bg-muted/50'}`}
@@ -729,8 +835,18 @@ export default function CsvManager() {
                 </tbody>
               </table>
             </div>
-            <div className="px-4 py-2 border-t border-border text-xs text-muted-foreground">
-              Showing {filtered.length} of {contacts.length} contacts
+            <div className="px-4 py-2 border-t border-border text-xs text-muted-foreground flex items-center justify-between">
+              <span>Showing {Math.min(csvVisibleCount, filtered.length)} of {filtered.length} contacts ({contacts.length} total)</span>
+              {csvVisibleCount < filtered.length && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCsvVisibleCount(prev => prev + CSV_PAGE_SIZE)}
+                  className="text-xs h-6"
+                >
+                  Load More ({filtered.length - csvVisibleCount} remaining)
+                </Button>
+              )}
             </div>
           </div>
         </>
