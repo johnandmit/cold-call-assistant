@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Campaign } from '@/types';
+import Papa from 'papaparse';
+import { Campaign, Contact } from '@/types';
 import {
   getCampaigns, createCampaign, renameCampaign, deleteCampaign,
   getActiveCampaignId, setActiveCampaignId, ensureCampaigns,
-  getCampaignLeadCount, updateCampaignColor, CAMPAIGN_COLORS,
+  getCampaignLeadCount, updateCampaignColor, CAMPAIGN_COLORS, getContacts
 } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FolderKanban, Plus, Trash2, Pencil, Check, X, Users, Calendar, CheckCircle2 } from 'lucide-react';
+import { FolderKanban, Plus, Trash2, Pencil, Check, X, Users, Calendar, CheckCircle2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Campaigns() {
@@ -84,6 +85,69 @@ export default function Campaigns() {
     refresh();
     toast.success(`Deleted "${campaign.name}"`);
   };
+  
+  const handleExport = (campaignId?: string) => {
+    let exportData: any[] = [];
+    const allCampaigns = getCampaigns();
+    
+    if (campaignId) {
+      const campaign = allCampaigns.find(c => c.id === campaignId);
+      if (!campaign) return;
+      const contacts = getContacts(campaignId);
+      exportData = contacts.map(c => ({
+        campaign: campaign.name,
+        ...formatContactForExport(c)
+      }));
+    } else {
+      // Export All
+      allCampaigns.forEach(campaign => {
+        const contacts = getContacts(campaign.id);
+        exportData.push(...contacts.map(c => ({
+          campaign: campaign.name,
+          ...formatContactForExport(c)
+        })));
+      });
+    }
+
+    if (exportData.length === 0) {
+      toast.error('No leads to export');
+      return;
+    }
+
+    const csv = Papa.unparse(exportData);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = campaignId 
+      ? `campaign-${allCampaigns.find(c => c.id === campaignId)?.name}-${new Date().toISOString().slice(0, 10)}.csv`
+      : `all-campaigns-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('CSV exported');
+  };
+
+  const formatContactForExport = (c: Contact) => ({
+    name: c.name,
+    phone: c.phone,
+    address: c.address,
+    website: c.website,
+    google_maps_url: c.google_maps_url,
+    rating: c.rating,
+    review_count: c.review_count,
+    conversion_confidence_score: c.conversion_confidence_score,
+    outreach_tier: c.outreach_tier,
+    average_urgency: c.average_urgency,
+    opening_hours: c.opening_hours,
+    category: c.category,
+    notes: c.notes,
+    called: c.called ? 'yes' : 'no',
+    call_date: c.call_date,
+    call_outcome: c.call_outcome,
+    follow_up_date: c.follow_up_date,
+    not_interested: c.not_interested ? 'yes' : 'no',
+    hidden_from_queue: c.hidden_from_queue ? 'yes' : 'no',
+  });
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -97,10 +161,18 @@ export default function Campaigns() {
             <p className="text-sm text-muted-foreground">Each campaign is an isolated workspace with its own leads, calls, and stats.</p>
           </div>
         </div>
-        <Button onClick={() => setCreating(true)} className="gap-1.5" disabled={creating}>
-          <Plus className="w-4 h-4" />
-          New Campaign
-        </Button>
+        <div className="flex gap-2">
+          {campaigns.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => handleExport()} className="gap-1.5">
+              <Download className="w-4 h-4" />
+              Export All
+            </Button>
+          )}
+          <Button onClick={() => setCreating(true)} className="gap-1.5" disabled={creating}>
+            <Plus className="w-4 h-4" />
+            New Campaign
+          </Button>
+        </div>
       </div>
 
       {/* Create Campaign */}
@@ -229,6 +301,13 @@ export default function Campaigns() {
                       ))}
                     </div>
                   </div>
+                  <button
+                    onClick={() => handleExport(campaign.id)}
+                    className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                    title="Export CSV"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => { setEditingId(campaign.id); setEditName(campaign.name); }}
                     className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
