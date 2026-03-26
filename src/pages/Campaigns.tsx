@@ -19,6 +19,8 @@ export default function Campaigns() {
   const [newColor, setNewColor] = useState(CAMPAIGN_COLORS[0]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [showExporter, setShowExporter] = useState(false);
+  const [exportSelection, setExportSelection] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const id = ensureCampaigns();
@@ -27,8 +29,14 @@ export default function Campaigns() {
   }, []);
 
   const refresh = () => {
-    setCampaigns(getCampaigns());
+    const freshCampaigns = getCampaigns();
+    setCampaigns(freshCampaigns);
     setActiveId(getActiveCampaignId());
+    
+    // Auto-select all campaigns in exporter by default if empty
+    if (exportSelection.size === 0) {
+      setExportSelection(new Set(freshCampaigns.map(c => c.id)));
+    }
   };
 
   const handleCreate = () => {
@@ -86,28 +94,33 @@ export default function Campaigns() {
     toast.success(`Deleted "${campaign.name}"`);
   };
   
-  const handleExport = (campaignId?: string) => {
+  const handleExport = (campaignId?: string | Set<string>) => {
     let exportData: any[] = [];
     const allCampaigns = getCampaigns();
     
-    if (campaignId) {
-      const campaign = allCampaigns.find(c => c.id === campaignId);
-      if (!campaign) return;
-      const contacts = getContacts(campaignId);
-      exportData = contacts.map(c => ({
+    let campaignsToExport: Campaign[] = [];
+
+    if (typeof campaignId === 'string') {
+      const c = allCampaigns.find(c => c.id === campaignId);
+      if (c) campaignsToExport.push(c);
+    } else if (campaignId instanceof Set) {
+      campaignsToExport = allCampaigns.filter(c => campaignId.has(c.id));
+    } else {
+      campaignsToExport = allCampaigns; // Export All default
+    }
+
+    if (campaignsToExport.length === 0) {
+      toast.error('No campaigns selected for export');
+      return;
+    }
+
+    campaignsToExport.forEach(campaign => {
+      const contacts = getContacts(campaign.id);
+      exportData.push(...contacts.map(c => ({
         campaign: campaign.name,
         ...formatContactForExport(c)
-      }));
-    } else {
-      // Export All
-      allCampaigns.forEach(campaign => {
-        const contacts = getContacts(campaign.id);
-        exportData.push(...contacts.map(c => ({
-          campaign: campaign.name,
-          ...formatContactForExport(c)
-        })));
-      });
-    }
+      })));
+    });
 
     if (exportData.length === 0) {
       toast.error('No leads to export');
@@ -119,12 +132,23 @@ export default function Campaigns() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = campaignId 
-      ? `campaign-${allCampaigns.find(c => c.id === campaignId)?.name}-${new Date().toISOString().slice(0, 10)}.csv`
-      : `all-campaigns-${new Date().toISOString().slice(0, 10)}.csv`;
+    
+    let fileName = '';
+    if (typeof campaignId === 'string' && campaignsToExport.length === 1) {
+      fileName = `campaign-${campaignsToExport[0].name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}`;
+    } else if (campaignsToExport.length === allCampaigns.length) {
+      fileName = 'all-campaigns';
+    } else {
+      // Multiple campaigns, e.g. "Barbershops-Tradies"
+      const names = campaignsToExport.slice(0, 3).map(c => c.name.replace(/[^a-z0-9]/gi, '').toLowerCase());
+      fileName = `campaigns-${names.join('-')}${campaignsToExport.length > 3 ? '-etc' : ''}`;
+    }
+    
+    a.download = `${fileName}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success('CSV exported');
+    setShowExporter(false);
   };
 
   const formatContactForExport = (c: Contact) => ({
@@ -163,9 +187,9 @@ export default function Campaigns() {
         </div>
         <div className="flex gap-2">
           {campaigns.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => handleExport()} className="gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => setShowExporter(true)} className="gap-1.5" disabled={showExporter}>
               <Download className="w-4 h-4" />
-              Export All
+              Export Options
             </Button>
           )}
           <Button onClick={() => setCreating(true)} className="gap-1.5" disabled={creating}>
@@ -174,6 +198,59 @@ export default function Campaigns() {
           </Button>
         </div>
       </div>
+
+      {/* Export Options */}
+      {showExporter && (
+        <div className="glass-card p-5 mb-6 animate-fade-in">
+          <h3 className="text-sm font-semibold mb-3">Export Campaigns</h3>
+          <p className="text-xs text-muted-foreground mb-3">Select the campaigns to combine into a single CSV file.</p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {campaigns.map(campaign => (
+              <label key={campaign.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:border-primary/30 transition-colors cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={exportSelection.has(campaign.id)}
+                  onChange={(e) => {
+                    const next = new Set(exportSelection);
+                    if (e.target.checked) next.add(campaign.id);
+                    else next.delete(campaign.id);
+                    setExportSelection(next);
+                  }}
+                  className="accent-primary"
+                />
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: campaign.color }} />
+                {campaign.name}
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Button 
+                onClick={() => handleExport(exportSelection)} 
+                size="sm" 
+                className="gap-1.5"
+                disabled={exportSelection.size === 0}
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export Selected
+            </Button>
+            <Button 
+                onClick={() => {
+                  const all = new Set(campaigns.map(c => c.id));
+                  setExportSelection(all);
+                  handleExport(all);
+                }} 
+                size="sm" 
+                variant="outline"
+                className="gap-1.5"
+            >
+              Export All
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowExporter(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Create Campaign */}
       {creating && (

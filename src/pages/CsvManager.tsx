@@ -58,6 +58,7 @@ export default function CsvManager() {
   const [showCrossCheck, setShowCrossCheck] = useState(false);
   const [crossCheckCampaigns, setCrossCheckCampaigns] = useState<Set<string>>(new Set());
   const [crossCheckResults, setCrossCheckResults] = useState<CrossCampaignMatch[]>([]);
+  const [selectedMatches, setSelectedMatches] = useState<Set<number>>(new Set());
   const [allCampaigns, setAllCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignIdState] = useState('');
   const [csvVisibleCount, setCsvVisibleCount] = useState(CSV_PAGE_SIZE);
@@ -429,6 +430,115 @@ export default function CsvManager() {
     toast.success(`Moved lead from ${match.matchedCampaignName} to here`);
   };
 
+  const handleBulkMergeNotes = () => {
+    if (selectedMatches.size === 0) return;
+    
+    let updatedContacts = [...contacts];
+    const matches = Array.from(selectedMatches).map(i => crossCheckResults[i]);
+    
+    matches.forEach(match => {
+      const idx = updatedContacts.findIndex(c => c.id === match.contact.id);
+      if (idx === -1) return;
+      
+      const currentContact = updatedContacts[idx];
+      const newNotes = [
+        currentContact.notes,
+        match.matchedContact.notes ? `\n--- Merged from ${match.matchedCampaignName} ---\n${match.matchedContact.notes}` : ''
+      ].filter(Boolean).join('\n').trim();
+
+      updatedContacts[idx] = {
+        ...currentContact,
+        notes: newNotes,
+        address: currentContact.address || match.matchedContact.address,
+        website: currentContact.website || match.matchedContact.website,
+        category: currentContact.category || match.matchedContact.category,
+      };
+    });
+
+    saveContacts(updatedContacts);
+    setContacts(updatedContacts);
+    
+    const processedIds = new Set(matches.map(m => m.matchedContact.id));
+    setCrossCheckResults(prev => prev.filter(m => !processedIds.has(m.matchedContact.id)));
+    setSelectedMatches(new Set());
+    toast.success(`Merged notes for ${selectedMatches.size} leads`);
+  };
+
+  const handleBulkDeleteFromOther = () => {
+    if (selectedMatches.size === 0) return;
+    if (!window.confirm(`Delete ${selectedMatches.size} leads from their original campaigns?`)) return;
+
+    const matchesByCampaign = new Map<string, string[]>();
+    const matches = Array.from(selectedMatches).map(i => crossCheckResults[i]);
+    
+    matches.forEach(m => {
+      const ids = matchesByCampaign.get(m.matchedCampaignId) || [];
+      ids.push(m.matchedContact.id);
+      matchesByCampaign.set(m.matchedCampaignId, ids);
+    });
+
+    matchesByCampaign.forEach((contactIds, campId) => {
+      const otherContacts = getContacts(campId);
+      const updated = otherContacts.filter(c => !contactIds.includes(c.id));
+      saveContacts(updated, campId);
+    });
+
+    const processedIds = new Set(matches.map(m => m.matchedContact.id));
+    setCrossCheckResults(prev => prev.filter(m => !processedIds.has(m.matchedContact.id)));
+    setSelectedMatches(new Set());
+    toast.success(`Deleted ${selectedMatches.size} leads from other campaigns`);
+  };
+
+  const handleBulkMoveContacts = () => {
+    if (selectedMatches.size === 0) return;
+    if (!window.confirm(`Move ${selectedMatches.size} leads here (merging notes and deleting from other campaigns)?`)) return;
+    
+    let updatedContacts = [...contacts];
+    const matches = Array.from(selectedMatches).map(i => crossCheckResults[i]);
+    
+    // Merge Phase
+    matches.forEach(match => {
+      const idx = updatedContacts.findIndex(c => c.id === match.contact.id);
+      if (idx === -1) return;
+      
+      const currentContact = updatedContacts[idx];
+      const newNotes = [
+        currentContact.notes,
+        match.matchedContact.notes ? `\n--- Merged from ${match.matchedCampaignName} ---\n${match.matchedContact.notes}` : ''
+      ].filter(Boolean).join('\n').trim();
+
+      updatedContacts[idx] = {
+        ...currentContact,
+        notes: newNotes,
+        address: currentContact.address || match.matchedContact.address,
+        website: currentContact.website || match.matchedContact.website,
+        category: currentContact.category || match.matchedContact.category,
+      };
+    });
+
+    saveContacts(updatedContacts);
+    setContacts(updatedContacts);
+
+    // Delete Phase
+    const matchesByCampaign = new Map<string, string[]>();
+    matches.forEach(m => {
+      const ids = matchesByCampaign.get(m.matchedCampaignId) || [];
+      ids.push(m.matchedContact.id);
+      matchesByCampaign.set(m.matchedCampaignId, ids);
+    });
+
+    matchesByCampaign.forEach((contactIds, campId) => {
+      const otherContacts = getContacts(campId);
+      const updated = otherContacts.filter(c => !contactIds.includes(c.id));
+      saveContacts(updated, campId);
+    });
+
+    const processedIds = new Set(matches.map(m => m.matchedContact.id));
+    setCrossCheckResults(prev => prev.filter(m => !processedIds.has(m.matchedContact.id)));
+    setSelectedMatches(new Set());
+    toast.success(`Moved ${selectedMatches.size} leads successfully`);
+  };
+
   const saveEditedContact = () => {
     if (!editingContact) return;
     const updated = contacts.map(c => c.id === editingContact.id ? editingContact : c);
@@ -534,6 +644,7 @@ export default function CsvManager() {
                 onClick={() => {
                   const results = checkCrossCampaignDuplicates(activeCampaignId, [...crossCheckCampaigns]);
                   setCrossCheckResults(results);
+                  setSelectedMatches(new Set());
                   if (results.length === 0) {
                     toast.success('No duplicates found across selected campaigns!');
                   }
@@ -546,27 +657,72 @@ export default function CsvManager() {
 
               {/* Results */}
               {crossCheckResults.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-warning flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4" />
-                    {crossCheckResults.length} duplicate{crossCheckResults.length !== 1 ? 's' : ''} found
-                  </p>
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-warning/5 border border-warning/20 p-3 rounded-lg mt-4">
+                    <p className="text-sm font-medium text-warning flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4" />
+                      {crossCheckResults.length} duplicate{crossCheckResults.length !== 1 ? 's' : ''} found
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs bg-background"
+                        onClick={() => {
+                          if (selectedMatches.size === crossCheckResults.length) setSelectedMatches(new Set());
+                          else setSelectedMatches(new Set(crossCheckResults.map((_, i) => i)));
+                        }}
+                      >
+                        {selectedMatches.size === crossCheckResults.length ? 'Deselect All' : 'Select All'}
+                      </Button>
+                      
+                      {selectedMatches.size > 0 && (
+                        <>
+                          <div className="w-px h-4 bg-border mx-1" />
+                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/30" onClick={handleBulkMergeNotes}>
+                            <Copy className="w-3.5 h-3.5" />
+                            Mass Merge
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-success/10 hover:text-success hover:border-success/30" onClick={handleBulkMoveContacts}>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Mass Move
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30" onClick={handleBulkDeleteFromOther}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Mass Delete
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="max-h-[400px] overflow-y-auto space-y-1">
                     {crossCheckResults.map((match, i) => (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-warning/5 border border-warning/20 text-sm">
+                      <div key={i} className={`flex items-center gap-3 px-3 py-2 rounded-lg border text-sm transition-colors ${selectedMatches.has(i) ? 'bg-primary/5 border-primary/30' : 'hover:bg-accent/50 border-border'}`}>
+                        <input 
+                          type="checkbox" 
+                          className="accent-primary shrink-0" 
+                          checked={selectedMatches.has(i)}
+                          onChange={e => {
+                            const next = new Set(selectedMatches);
+                            if (e.target.checked) next.add(i);
+                            else next.delete(i);
+                            setSelectedMatches(next);
+                          }}
+                        />
                         <div className="flex-1 min-w-0">
                           <span className="font-medium text-xs md:text-sm">{match.contact.name}</span>
                           <span className="text-[10px] md:text-xs text-muted-foreground ml-2 font-mono">{match.contact.phone}</span>
                         </div>
-                        <div className="hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground bg-background/50 px-2 py-0.5 rounded-full">
+                        <div className="hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground bg-background/50 px-2 py-0.5 rounded-full border border-border">
                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: allCampaigns.find(c => c.id === match.matchedCampaignId)?.color }} />
                           <span className="truncate max-w-[80px]">{match.matchedCampaignName}</span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="w-7 h-7 text-primary hover:text-primary hover:bg-primary/10"
+                            className="w-7 h-7 hover:text-primary hover:bg-primary/10"
                             title="Merge Notes to Current"
                             onClick={() => handleMergeNotes(match)}
                           >
@@ -575,7 +731,7 @@ export default function CsvManager() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="w-7 h-7 text-success hover:text-success hover:bg-success/10"
+                            className="w-7 h-7 hover:text-success hover:bg-success/10"
                             title="Move here (Merge & Delete from other)"
                             onClick={() => handleMoveContact(match)}
                           >
@@ -584,7 +740,7 @@ export default function CsvManager() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="w-7 h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            className="w-7 h-7 hover:text-destructive hover:bg-destructive/10"
                             title="Delete from Other Campaign"
                             onClick={() => handleDeleteFromOther(match)}
                           >
