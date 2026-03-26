@@ -9,7 +9,7 @@ import { v4 } from '@/lib/uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp, Copy, ExternalLink, CornerUpRight } from 'lucide-react';
 import { Campaign } from '@/types';
 import { toast } from 'sonner';
 
@@ -388,6 +388,47 @@ export default function CsvManager() {
     toast.success('Contact deleted');
   };
 
+  const handleDeleteFromOther = (match: CrossCampaignMatch) => {
+    const otherContacts = getContacts(match.matchedCampaignId);
+    const updated = otherContacts.filter(c => c.id !== match.matchedContact.id);
+    saveContacts(updated, match.matchedCampaignId);
+    setCrossCheckResults(prev => prev.filter(m => m.matchedContact.id !== match.matchedContact.id));
+    toast.success(`Deleted from ${match.matchedCampaignName}`);
+  };
+
+  const handleMergeNotes = (match: CrossCampaignMatch) => {
+    const currentContact = contacts.find(c => c.id === match.contact.id);
+    if (!currentContact) return;
+
+    const newNotes = [
+      currentContact.notes,
+      match.matchedContact.notes ? `\n--- Merged from ${match.matchedCampaignName} ---\n${match.matchedContact.notes}` : ''
+    ].filter(Boolean).join('\n').trim();
+
+    const updatedContact = {
+      ...currentContact,
+      notes: newNotes,
+      // Copy other fields if current is empty
+      address: currentContact.address || match.matchedContact.address,
+      website: currentContact.website || match.matchedContact.website,
+      category: currentContact.category || match.matchedContact.category,
+    };
+
+    const updatedContacts = contacts.map(c => c.id === updatedContact.id ? updatedContact : c);
+    saveContacts(updatedContacts);
+    setContacts(updatedContacts);
+    
+    // Remove from matches after merging
+    setCrossCheckResults(prev => prev.filter(m => m.matchedContact.id !== match.matchedContact.id));
+    toast.success(`Merged notes from ${match.matchedCampaignName}`);
+  };
+
+  const handleMoveContact = (match: CrossCampaignMatch) => {
+    handleMergeNotes(match);
+    handleDeleteFromOther(match);
+    toast.success(`Moved lead from ${match.matchedCampaignName} to here`);
+  };
+
   const saveEditedContact = () => {
     if (!editingContact) return;
     const updated = contacts.map(c => c.id === editingContact.id ? editingContact : c);
@@ -514,18 +555,41 @@ export default function CsvManager() {
                     {crossCheckResults.map((match, i) => (
                       <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-warning/5 border border-warning/20 text-sm">
                         <div className="flex-1 min-w-0">
-                          <span className="font-medium">{match.contact.name}</span>
-                          <span className="text-xs text-muted-foreground ml-2 font-mono">{match.contact.phone}</span>
+                          <span className="font-medium text-xs md:text-sm">{match.contact.name}</span>
+                          <span className="text-[10px] md:text-xs text-muted-foreground ml-2 font-mono">{match.contact.phone}</span>
                         </div>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          match.matchType === 'phone' ? 'bg-destructive/20 text-destructive' : 'bg-warning/20 text-warning'
-                        }`}>
-                          {match.matchType === 'phone' ? 'Phone Match' : 'Name Match'}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <span>↔</span>
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: allCampaigns.find(c => c.id === match.matchedCampaignId)?.color }} />
-                          <span>{match.matchedCampaignName}</span>
+                        <div className="hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground bg-background/50 px-2 py-0.5 rounded-full">
+                          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: allCampaigns.find(c => c.id === match.matchedCampaignId)?.color }} />
+                          <span className="truncate max-w-[80px]">{match.matchedCampaignName}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 text-primary hover:text-primary hover:bg-primary/10"
+                            title="Merge Notes to Current"
+                            onClick={() => handleMergeNotes(match)}
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 text-success hover:text-success hover:bg-success/10"
+                            title="Move here (Merge & Delete from other)"
+                            onClick={() => handleMoveContact(match)}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            title="Delete from Other Campaign"
+                            onClick={() => handleDeleteFromOther(match)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
