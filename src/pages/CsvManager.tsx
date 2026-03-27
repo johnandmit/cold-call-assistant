@@ -9,7 +9,7 @@ import { v4 } from '@/lib/uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp, Copy, ExternalLink, CornerUpRight } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp, Copy, ExternalLink, CornerUpRight, UserMinus } from 'lucide-react';
 import { Campaign } from '@/types';
 import { toast } from 'sonner';
 
@@ -397,6 +397,15 @@ export default function CsvManager() {
     toast.success(`Deleted from ${match.matchedCampaignName}`);
   };
 
+  const handleDeleteFromCurrent = (match: CrossCampaignMatch) => {
+    const updated = contacts.filter(c => c.id !== match.contact.id);
+    saveContacts(updated);
+    setContacts(updated);
+    // Remove from matches after deleting from current
+    setCrossCheckResults(prev => prev.filter(m => m.contact.id !== match.contact.id));
+    toast.success(`Deleted lead from current campaign`);
+  };
+
   const handleMergeNotes = (match: CrossCampaignMatch) => {
     const currentContact = contacts.find(c => c.id === match.contact.id);
     if (!currentContact) return;
@@ -537,6 +546,25 @@ export default function CsvManager() {
     setCrossCheckResults(prev => prev.filter(m => !processedIds.has(m.matchedContact.id)));
     setSelectedMatches(new Set());
     toast.success(`Moved ${selectedMatches.size} leads successfully`);
+  };
+
+  const handleBulkDeleteFromCurrent = () => {
+    if (selectedMatches.size === 0) return;
+    if (!window.confirm(`Delete ${selectedMatches.size} leads from the current campaign?`)) return;
+
+    let updatedContacts = [...contacts];
+    const matches = Array.from(selectedMatches).map(i => crossCheckResults[i]);
+    const idsToRemove = new Set(matches.map(m => m.contact.id));
+    
+    updatedContacts = updatedContacts.filter(c => !idsToRemove.has(c.id));
+
+    saveContacts(updatedContacts);
+    setContacts(updatedContacts);
+
+    const processedIds = new Set(matches.map(m => m.contact.id));
+    setCrossCheckResults(prev => prev.filter(m => !processedIds.has(m.contact.id)));
+    setSelectedMatches(new Set());
+    toast.success(`Deleted ${selectedMatches.size} leads from current campaign`);
   };
 
   const saveEditedContact = () => {
@@ -681,15 +709,19 @@ export default function CsvManager() {
                           <div className="w-px h-4 bg-border mx-1" />
                           <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/30" onClick={handleBulkMergeNotes}>
                             <Copy className="w-3.5 h-3.5" />
-                            Mass Merge
+                            Merge Notes (Keep Both)
                           </Button>
                           <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-success/10 hover:text-success hover:border-success/30" onClick={handleBulkMoveContacts}>
                             <ExternalLink className="w-3.5 h-3.5" />
-                            Mass Move
+                            Move to Current (Delete from Other)
                           </Button>
                           <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30" onClick={handleBulkDeleteFromOther}>
                             <Trash2 className="w-3.5 h-3.5" />
-                            Mass Delete
+                            Delete from Other (Keep Current)
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 bg-background hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30" onClick={handleBulkDeleteFromCurrent}>
+                            <UserMinus className="w-3.5 h-3.5" />
+                            Delete from Current (Keep Other)
                           </Button>
                         </>
                       )}
@@ -718,12 +750,12 @@ export default function CsvManager() {
                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: allCampaigns.find(c => c.id === match.matchedCampaignId)?.color }} />
                           <span className="truncate max-w-[80px]">{match.matchedCampaignName}</span>
                         </div>
-                        <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity flex-wrap justify-end">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="w-7 h-7 hover:text-primary hover:bg-primary/10"
-                            title="Merge Notes to Current"
+                            title="Merge Notes to Current (Keep Both)"
                             onClick={() => handleMergeNotes(match)}
                           >
                             <Copy className="w-3.5 h-3.5" />
@@ -732,7 +764,7 @@ export default function CsvManager() {
                             variant="ghost"
                             size="icon"
                             className="w-7 h-7 hover:text-success hover:bg-success/10"
-                            title="Move here (Merge & Delete from other)"
+                            title="Move to Current (Delete from Other)"
                             onClick={() => handleMoveContact(match)}
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
@@ -741,10 +773,19 @@ export default function CsvManager() {
                             variant="ghost"
                             size="icon"
                             className="w-7 h-7 hover:text-destructive hover:bg-destructive/10"
-                            title="Delete from Other Campaign"
+                            title="Delete from Other (Keep Current)"
                             onClick={() => handleDeleteFromOther(match)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 hover:text-destructive hover:bg-destructive/10"
+                            title="Delete from Current (Keep Other)"
+                            onClick={() => handleDeleteFromCurrent(match)}
+                          >
+                            <UserMinus className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </div>
