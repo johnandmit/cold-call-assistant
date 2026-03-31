@@ -37,7 +37,18 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const toggleAction = (action: string) => {
     setActions(prev => {
       const next = new Set(prev);
-      if (next.has(action)) next.delete(action); else next.add(action);
+      if (next.has(action)) {
+        next.delete(action);
+      } else {
+        next.add(action);
+        if (['no_answer', 'phone_not_working', 'revert_uncalled', 'not_interested'].includes(action)) {
+          next.delete('no_action');
+        }
+        if (action === 'no_action') {
+          ['no_answer', 'phone_not_working', 'revert_uncalled', 'not_interested'].forEach(a => next.delete(a));
+        }
+      }
+
       const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'not_interested', 'revert_uncalled'];
       if (exclusiveOutcomes.includes(action) && next.has(action)) {
         exclusiveOutcomes.filter(a => a !== action).forEach(a => next.delete(a));
