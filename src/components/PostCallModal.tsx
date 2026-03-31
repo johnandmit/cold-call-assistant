@@ -44,6 +44,11 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       }
       return next;
     });
+
+    // Auto-discard recording if user selects no_answer or phone_not_working
+    if ((action === 'no_answer' || action === 'phone_not_working') && !actions.has(action)) {
+      setKeepRecording(false);
+    }
   };
 
   const copyWorkflowTrigger = () => {

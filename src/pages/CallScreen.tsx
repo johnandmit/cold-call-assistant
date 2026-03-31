@@ -87,7 +87,6 @@ export default function CallScreen() {
 
       if ((final || interim) && !speechDetectedRef.current) {
         speechDetectedRef.current = true;
-        startRecording();
       }
 
       if (final) {
@@ -122,8 +121,6 @@ export default function CallScreen() {
   useEffect(() => {
     navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
       mediaStreamRef.current = stream;
-      // Auto-start recording immediately
-      startRecording();
     }).catch(() => {});
     return () => {
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -285,7 +282,7 @@ export default function CallScreen() {
 
       const isRevert = actions.includes('revert_uncalled');
       const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
-      const didPickUp = !isRevert && !isSuppressed; // Only count as called if they actually picked up
+      const didPickUp = !isRevert; // Mark as called even if suppressed (e.g. no answer), so they don't get recalled
       const isRemoved = actions.includes('remove_from_queue');
 
       updateContact(contact.id, {
