@@ -98,7 +98,13 @@ export default function CallQueue() {
     let filtered = contacts.filter(c => !c.not_interested && !c.hidden_from_queue && !isContactSuppressed(c.id) && !skippedIds.has(c.id));
     if (search) {
       const s = search.toLowerCase();
-      filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
+      const searchClean = s.replace(/[\s\-\(\)\.]/g, '');
+      filtered = filtered.filter(c => {
+        if (c.name.toLowerCase().includes(s)) return true;
+        const phoneClean = c.phone.replace(/[\s\-\(\)\.]/g, '');
+        if (phoneClean.includes(searchClean)) return true;
+        return false;
+      });
     }
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));

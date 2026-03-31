@@ -580,7 +580,13 @@ export default function CsvManager() {
     let list = contacts;
     if (search) {
       const s = search.toLowerCase();
-      list = list.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
+      const searchClean = s.replace(/[\s\-\(\)\.]/g, '');
+      list = list.filter(c => {
+        if (c.name.toLowerCase().includes(s)) return true;
+        const phoneClean = c.phone.replace(/[\s\-\(\)\.]/g, '');
+        if (phoneClean.includes(searchClean)) return true;
+        return false;
+      });
     }
     if (filters.minRating > 0) list = list.filter(c => c.rating >= filters.minRating);
     if (filters.maxTier < 3) list = list.filter(c => (c.outreach_tier || 3) <= filters.maxTier);
