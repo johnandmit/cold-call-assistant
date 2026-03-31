@@ -16,12 +16,12 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
   const [notes, setNotes] = useState('');
-  const [actions, setActions] = useState<Set<string>>(new Set());
+  const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
   const [copied, setCopied] = useState(false);
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
@@ -69,7 +69,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
     return 'completed';
   };
 
-  const handleDone = () => {
+  const handleDone = (direction: 'forward' | 'backward' = 'forward') => {
     let followUpISO = '';
     if (actions.has('follow_up') && followUpDate) {
       const [h, m] = followUpTime.split(':').map(Number);
@@ -77,7 +77,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating, callSuccess ?? undefined);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating, callSuccess ?? undefined, direction);
   };
 
   return (
@@ -210,7 +210,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <div className="flex-1">
               <span className="text-sm font-medium">Trigger Anti-Gravity website build</span>
               {actions.has('anti_gravity') && (
-                <div className="mt-2 space-y-2 animate-fade-in">
+               <div className="mt-2 space-y-2 animate-fade-in">
                   <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
                     {contact.google_maps_url || 'No Google Maps URL available'}
                   </div>
@@ -331,9 +331,15 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
           </label>
         </div>
 
-        <Button onClick={handleDone} className="w-full h-11 font-semibold rounded-lg">
-          Done
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => handleDone('backward')} variant="outline" className="flex-1 h-11 font-semibold rounded-lg">
+            <Undo2 className="w-4 h-4 mr-2" />
+            Done & Prev
+          </Button>
+          <Button onClick={() => handleDone('forward')} className="flex-[2] h-11 font-semibold rounded-lg">
+            Done & Next
+          </Button>
+        </div>
       </div>
     </div>
   );

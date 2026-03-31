@@ -5,7 +5,7 @@ import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage'
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle } from 'lucide-react';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
@@ -255,7 +255,32 @@ export default function CallScreen() {
     navigate('/');
   }, [navigate]);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => {
+  const goToPreviousLead = useCallback(() => {
+    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex > 0) {
+      setCallActive(false);
+      try { recognitionRef.current?.stop(); } catch {}
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+      
+      const prevIndex = currentQueueIndex - 1;
+      const allContacts = getContacts();
+      const prevContact = allContacts.find(c => c.id === queueIds[prevIndex]);
+      
+      if (prevContact) {
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: prevContact, queueIds, queueIndex: prevIndex },
+            replace: true,
+          });
+        }, 50);
+      } else {
+        navigate('/');
+      }
+    }
+  }, [queueIds, currentQueueIndex, navigate]);
+
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
     if (contact) {
       const session = getOrCreateActiveSession();
       const callId = v4();
@@ -360,17 +385,17 @@ export default function CallScreen() {
       return;
     }
 
-    // Auto-advance to next lead in queue
+    // Auto-advance or recede in queue
     if (queueIds && currentQueueIndex !== undefined) {
-      const nextIndex = currentQueueIndex + 1;
-      if (nextIndex < queueIds.length) {
-        const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
-        if (nextContact) {
-          // Navigate away briefly then to the next call to force remount
+      const targetIndex = direction === 'forward' ? currentQueueIndex + 1 : currentQueueIndex - 1;
+      if (targetIndex >= 0 && targetIndex < queueIds.length) {
+        const targetContact = allContacts.find(c => c.id === queueIds[targetIndex]);
+        if (targetContact) {
+          // Navigate away briefly then to the target call to force remount
           navigate('/', { replace: true });
           setTimeout(() => {
             navigate('/call', {
-              state: { contact: nextContact, queueIds, queueIndex: nextIndex },
+              state: { contact: targetContact, queueIds, queueIndex: targetIndex },
               replace: true,
             });
           }, 50);
@@ -441,6 +466,12 @@ export default function CallScreen() {
             </div>
           )}
           <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+          {currentQueueIndex !== undefined && currentQueueIndex > 0 && (
+            <Button onClick={goToPreviousLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
+              <SkipBack className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Prev Lead</span>
+            </Button>
+          )}
           <Button onClick={exitWithoutLogging} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
             <LogOut className="w-3.5 h-3.5" />
             Exit
