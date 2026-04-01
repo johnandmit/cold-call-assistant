@@ -117,16 +117,6 @@ export default function CallScreen() {
     }
   }, [callActive]);
 
-  // Auto-start recording as soon as mic stream is available
-  useEffect(() => {
-    navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
-      mediaStreamRef.current = stream;
-    }).catch(() => {});
-    return () => {
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    };
-  }, []);
-
   const startRecording = useCallback(() => {
     if (recordingStartedRef.current || !mediaStreamRef.current) return;
     recordingStartedRef.current = true;
@@ -175,6 +165,17 @@ export default function CallScreen() {
     mr.start(500);
     setIsManualRecording(true);
   }, []);
+
+  // Auto-start recording as soon as mic stream is available
+  useEffect(() => {
+    navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
+      mediaStreamRef.current = stream;
+      startRecording();
+    }).catch(() => {});
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, [startRecording]);
 
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise(resolve => {
