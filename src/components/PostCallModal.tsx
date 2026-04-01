@@ -20,7 +20,7 @@ interface Props {
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(contact.notes || '');
   const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
   const [copied, setCopied] = useState(false);
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
