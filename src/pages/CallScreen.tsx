@@ -315,7 +315,7 @@ export default function CallScreen() {
         called: didPickUp,
         call_date: didPickUp ? now : (contact.call_date || ''),
         notes: notes || contact.notes,
-        not_interested: actions.includes('not_interested'),
+        not_interested: contact.not_interested,
         follow_up_date: followUpDate || '',
         call_outcome: outcome || '',
         hidden_from_queue: isRemoved || contact.hidden_from_queue,

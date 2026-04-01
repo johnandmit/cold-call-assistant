@@ -22,7 +22,6 @@ interface Props {
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
   const [notes, setNotes] = useState(contact.notes || '');
   const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
-  const [copied, setCopied] = useState(false);
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
   const [keepRecording, setKeepRecording] = useState(true);
@@ -41,15 +40,15 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
         next.delete(action);
       } else {
         next.add(action);
-        if (['no_answer', 'phone_not_working', 'revert_uncalled', 'not_interested'].includes(action)) {
+        if (['no_answer', 'phone_not_working', 'revert_uncalled'].includes(action)) {
           next.delete('no_action');
         }
         if (action === 'no_action') {
-          ['no_answer', 'phone_not_working', 'revert_uncalled', 'not_interested'].forEach(a => next.delete(a));
+          ['no_answer', 'phone_not_working', 'revert_uncalled'].forEach(a => next.delete(a));
         }
       }
 
-      const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'not_interested', 'revert_uncalled'];
+      const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'revert_uncalled'];
       if (exclusiveOutcomes.includes(action) && next.has(action)) {
         exclusiveOutcomes.filter(a => a !== action).forEach(a => next.delete(a));
       }
@@ -62,20 +61,10 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
     }
   };
 
-  const copyWorkflowTrigger = () => {
-    const text = `ANTI-GRAVITY TASK: Build website for ${contact.name}.\nGoogle Maps URL: ${contact.google_maps_url || 'N/A'}\nAddress: ${contact.address || 'N/A'}\nPhone: ${contact.phone}\nNotes from call: ${notes || 'None'}`;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Workflow trigger copied to clipboard');
-  };
-
   const getOutcome = (): string => {
     if (actions.has('no_answer')) return 'no_answer';
     if (actions.has('phone_not_working')) return 'phone_not_working';
-    if (actions.has('not_interested')) return 'not_interested';
     if (actions.has('warm_lead')) return 'interested';
-    if (actions.has('anti_gravity')) return 'interested';
     if (actions.has('send_proposal')) return 'interested';
     return 'completed';
   };
@@ -216,28 +205,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <p className="text-sm font-medium mb-3">Post-Call Actions</p>
           </div>
 
-          <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('anti_gravity')} onChange={() => toggleAction('anti_gravity')} className="mt-0.5 accent-primary w-4 h-4" />
-            <div className="flex-1">
-              <span className="text-sm font-medium">Trigger Anti-Gravity website build</span>
-              {actions.has('anti_gravity') && (
-               <div className="mt-2 space-y-2 animate-fade-in">
-                  <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
-                    {contact.google_maps_url || 'No Google Maps URL available'}
-                  </div>
-                  <Button size="sm" variant="outline" onClick={copyWorkflowTrigger} className="gap-1.5 text-xs h-8">
-                    {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-                    {copied ? 'Copied!' : 'Copy Workflow Trigger'}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </label>
 
-          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('not_interested')} onChange={() => toggleAction('not_interested')} className="accent-primary w-4 h-4" />
-            <span className="text-sm font-medium">Mark as Not Interested</span>
-          </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('remove_from_queue')} onChange={() => toggleAction('remove_from_queue')} className="accent-primary w-4 h-4" />
