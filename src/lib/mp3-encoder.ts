@@ -28,6 +28,32 @@ export async function convertToMp3(webmBlob: Blob): Promise<Blob> {
     }
   }
 
+  // Trim initial silence (up to 30 seconds)
+  const maxTrimSamples = sampleRate * 30;
+  const threshold = 0.015; // Absolute amplitude threshold for silence
+  const blockSizeTrim = Math.floor(sampleRate * 0.1); // Check in 100ms blocks
+  let trimStartIndex = 0;
+
+  for (let i = 0; i < Math.min(samples.length, maxTrimSamples); i += blockSizeTrim) {
+    let sum = 0;
+    const end = Math.min(i + blockSizeTrim, samples.length);
+    for (let j = i; j < end; j++) {
+      sum += Math.abs(samples[j]);
+    }
+    const avg = sum / (end - i);
+    if (avg > threshold) {
+      break; // Sound detected
+    }
+    trimStartIndex = end;
+  }
+
+  // Keep a 0.5s buffer before the sound actually starts to prevent harsh cut-offs
+  trimStartIndex = Math.max(0, trimStartIndex - Math.floor(sampleRate * 0.5));
+  
+  if (trimStartIndex > 0) {
+    samples = samples.subarray(trimStartIndex);
+  }
+
   // Convert float32 samples to int16
   const int16Samples = new Int16Array(samples.length);
   for (let i = 0; i < samples.length; i++) {
