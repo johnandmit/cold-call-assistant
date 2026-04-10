@@ -12,7 +12,7 @@ import PostCallModal from '@/components/PostCallModal';
 import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
 import { convertToMp3 } from '@/lib/mp3-encoder';
-import { downloadCsv } from '@/lib/csv-export';
+
 import { toast } from 'sonner';
 
 export default function CallScreen() {
@@ -354,9 +354,6 @@ export default function CallScreen() {
       if (isSuppressed) {
         suppressContact(contact.id);
       }
-      
-      // Instantly change the CSV file so it stays updated
-      downloadCsv();
     }
 
     // Handle recording save
