@@ -5,7 +5,7 @@ import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage'
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward } from 'lucide-react';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
@@ -553,6 +553,41 @@ export default function CallScreen() {
               T{contact.outreach_tier}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Previous History Banner */}
+      {(contact.called || contact.notes || contact.follow_up_date) && (
+        <div className="bg-primary/5 border-b border-primary/10 px-6 py-3 shrink-0 flex flex-col gap-1.5">
+           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+              <Clock className="w-4 h-4" /> Previous History
+              {contact.call_date && <span className="text-xs font-normal text-muted-foreground ml-2">Last called: {new Date(contact.call_date).toLocaleString()}</span>}
+           </div>
+           
+           <div className="flex flex-wrap gap-4 text-sm mt-1">
+             {contact.call_outcome && (
+               <div className="flex items-center gap-1.5 bg-background border border-border px-2 py-1 rounded text-muted-foreground">
+                 <Phone className="w-3.5 h-3.5" /> Outcome: <span className="font-medium text-foreground capitalize">{contact.call_outcome.replace(/_/g, ' ')}</span>
+               </div>
+             )}
+             {contact.follow_up_date && (
+               <div className="flex items-center gap-1.5 bg-warning/10 border border-warning/30 px-2 py-1 rounded text-warning">
+                 <Bell className="w-3.5 h-3.5" /> Follow-up Due: <span className="font-medium">{new Date(contact.follow_up_date).toLocaleString()}</span>
+               </div>
+             )}
+             {contact.not_interested && (
+               <div className="flex items-center gap-1.5 bg-destructive/10 border border-destructive/30 px-2 py-1 rounded text-destructive">
+                 <AlertTriangle className="w-3.5 h-3.5" /> Marked as Not Interested
+               </div>
+             )}
+           </div>
+           
+           {contact.notes && (
+             <div className="mt-2 bg-background/50 border border-border/50 rounded p-2 text-sm whitespace-pre-wrap text-muted-foreground">
+               <span className="font-semibold text-foreground mr-1">Notes:</span>
+               {contact.notes}
+             </div>
+           )}
         </div>
       )}
 
