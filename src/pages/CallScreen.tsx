@@ -12,6 +12,7 @@ import PostCallModal from '@/components/PostCallModal';
 import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
 import { convertToMp3 } from '@/lib/mp3-encoder';
+import { downloadCsv } from '@/lib/csv-export';
 import { toast } from 'sonner';
 
 export default function CallScreen() {
@@ -281,6 +282,31 @@ export default function CallScreen() {
     }
   }, [queueIds, currentQueueIndex, navigate]);
 
+  const goToNextLead = useCallback(() => {
+    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex < queueIds.length - 1) {
+      setCallActive(false);
+      try { recognitionRef.current?.stop(); } catch {}
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+      
+      const nextIndex = currentQueueIndex + 1;
+      const allContacts = getContacts();
+      const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
+      
+      if (nextContact) {
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: nextContact, queueIds, queueIndex: nextIndex },
+            replace: true,
+          });
+        }, 50);
+      } else {
+        navigate('/');
+      }
+    }
+  }, [queueIds, currentQueueIndex, navigate]);
+
   const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
     if (contact) {
       const session = getOrCreateActiveSession();
@@ -288,28 +314,32 @@ export default function CallScreen() {
       const now = new Date().toISOString();
       const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
 
-      addCall({
-        id: callId,
-        contact_id: contact.id,
-        contact_name: contact.name,
-        started_at: new Date(startTimeRef.current).toISOString(),
-        ended_at: now,
-        duration_seconds: seconds,
-        transcript: transcriptAccRef.current,
-        recording_filename: keepRecording ? filename : '',
-        recording_drive_url: '',
-        notes,
-        actions_taken: actions,
-        call_rating: callRating || 0,
-        call_success: callSuccess,
-        session_id: session.id,
-        category: contact.category || '',
-      });
-
       const isRevert = actions.includes('revert_uncalled');
       const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
       const didPickUp = !isRevert; // Mark as called even if suppressed (e.g. no answer), so they don't get recalled
       const isRemoved = actions.includes('remove_from_queue');
+
+      if (!isRevert) {
+        addCall({
+          id: callId,
+          contact_id: contact.id,
+          contact_name: contact.name,
+          started_at: new Date(startTimeRef.current).toISOString(),
+          ended_at: now,
+          duration_seconds: seconds,
+          transcript: transcriptAccRef.current,
+          recording_filename: keepRecording ? filename : '',
+          recording_drive_url: '',
+          notes,
+          actions_taken: actions,
+          call_rating: callRating || 0,
+          call_success: callSuccess,
+          session_id: session.id,
+          category: contact.category || '',
+        });
+
+        recordCallOutcome(outcome || 'completed');
+      }
 
       updateContact(contact.id, {
         called: didPickUp,
@@ -324,8 +354,9 @@ export default function CallScreen() {
       if (isSuppressed) {
         suppressContact(contact.id);
       }
-
-      recordCallOutcome(outcome || 'completed');
+      
+      // Instantly change the CSV file so it stays updated
+      downloadCsv();
     }
 
     // Handle recording save
@@ -470,7 +501,13 @@ export default function CallScreen() {
           {currentQueueIndex !== undefined && currentQueueIndex > 0 && (
             <Button onClick={goToPreviousLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
               <SkipBack className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Prev Lead</span>
+              <span className="hidden xl:inline">Prev Lead</span>
+            </Button>
+          )}
+          {queueIds && currentQueueIndex !== undefined && currentQueueIndex < queueIds.length - 1 && (
+            <Button onClick={goToNextLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
+              <span className="hidden xl:inline">Next Lead</span>
+              <SkipForward className="w-3.5 h-3.5" />
             </Button>
           )}
           <Button onClick={exitWithoutLogging} variant="outline" size="sm" className="gap-1.5 text-xs h-9">

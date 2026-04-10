@@ -48,7 +48,12 @@ export default function Dashboard() {
     const remaining = total - called;
     const notInterested = contacts.filter(c => c.not_interested).length;
     const withFollowUp = contacts.filter(c => !!c.follow_up_date).length;
-    const totalCalls = calls.length;
+    const trueCalls = calls.filter(c => 
+      !c.actions_taken.includes('no_answer') && 
+      !c.actions_taken.includes('phone_not_working') && 
+      !c.actions_taken.includes('revert_uncalled')
+    );
+    const totalCalls = trueCalls.length;
     return { total, called, remaining, notInterested, withFollowUp, totalCalls };
   }, [contacts, calls]);
 
@@ -294,7 +299,8 @@ export default function Dashboard() {
               {Object.entries(viewingSession.outcomes).sort((a, b) => b[1] - a[1]).map(([outcome, count]) => {
                 const info = OUTCOME_LABELS[outcome] || { label: outcome, icon: Phone, color: 'text-muted-foreground' };
                 const Icon = info.icon;
-                const pct = viewingSession.callsMade > 0 ? Math.round((count / viewingSession.callsMade) * 100) : 0;
+                const totalSessionOutcomes = Object.values(viewingSession.outcomes).reduce((a, b: any) => a + Number(b), 0);
+                const pct = totalSessionOutcomes > 0 ? Math.round((count / totalSessionOutcomes) * 100) : 0;
                 return (
                   <div key={outcome} className="flex items-center gap-3">
                     <Icon className={`w-4 h-4 ${info.color}`} />

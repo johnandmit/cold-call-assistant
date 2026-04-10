@@ -122,7 +122,9 @@ export function endActiveSession(campaignId?: string) {
 
 export function recordCallOutcome(outcome: string, campaignId?: string) {
   const session = getOrCreateActiveSession(campaignId);
-  session.callsMade++;
+  if (outcome !== 'no_answer' && outcome !== 'phone_not_working') {
+    session.callsMade++;
+  }
   session.outcomes[outcome] = (session.outcomes[outcome] || 0) + 1;
   const sessions = getSessions(campaignId);
   const idx = sessions.findIndex(s => s.id === session.id);
