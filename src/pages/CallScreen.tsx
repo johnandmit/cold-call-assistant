@@ -307,7 +307,7 @@ export default function CallScreen() {
     }
   }, [queueIds, currentQueueIndex, navigate]);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
     if (contact) {
       const session = getOrCreateActiveSession();
       const callId = v4();
@@ -328,7 +328,7 @@ export default function CallScreen() {
           ended_at: now,
           duration_seconds: seconds,
           transcript: transcriptAccRef.current,
-          recording_filename: keepRecording ? filename : '',
+          recording_filename: (saveLocally || shouldUploadToDrive) ? filename : '',
           recording_drive_url: '',
           notes,
           actions_taken: actions,
@@ -358,9 +358,10 @@ export default function CallScreen() {
 
     // Handle recording save
     const settings = getSettings();
-    if (keepRecording && recordingBlob && contact) {
+    if ((saveLocally || shouldUploadToDrive) && recordingBlob && contact) {
       const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
-      if (settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both') {
+      
+      if (saveLocally) {
         const url = URL.createObjectURL(recordingBlob);
         const a = document.createElement('a');
         a.href = url;
@@ -368,20 +369,23 @@ export default function CallScreen() {
         a.click();
         URL.revokeObjectURL(url);
       }
-      if ((settings.recordingSaveMode === 'drive' || settings.recordingSaveMode === 'both') && settings.driveConnected) {
+      
+      if (shouldUploadToDrive && settings.driveConnected) {
         uploadToDrive(recordingBlob, filename)
           .then(driveUrl => {
             updateContact(contact.id, { call_recording_drive_url: driveUrl });
           })
           .catch(err => {
             console.error('Drive upload failed:', err);
-            // Fallback: download locally if drive fails
-            const url = URL.createObjectURL(recordingBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(url);
+            // Fallback: download locally if drive fails and we haven't already
+            if (!saveLocally) {
+              const url = URL.createObjectURL(recordingBlob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              a.click();
+              URL.revokeObjectURL(url);
+            }
           });
       }
     }

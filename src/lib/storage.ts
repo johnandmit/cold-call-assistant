@@ -188,7 +188,14 @@ export function addCall(call: Call, campaignId?: string) {
 export function getSettings(): Settings {
   try {
     const data = localStorage.getItem(SETTINGS_KEY);
-    return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
+    const parsed = data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
+    
+    // Auto-connect Drive if Service Account is present
+    if (parsed.serviceAccountJson || import.meta.env.VITE_SERVICE_ACCOUNT_JSON) {
+      parsed.driveConnected = true;
+    }
+    
+    return parsed;
   } catch { return DEFAULT_SETTINGS; }
 }
 

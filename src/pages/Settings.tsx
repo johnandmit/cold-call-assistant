@@ -301,41 +301,62 @@ export default function SettingsPage() {
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <HardDrive className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Google Drive</h2>
+            <h2 className="font-semibold">Google Drive Automation</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">Connect Google Drive to automatically upload call recordings.</p>
-          {settings.driveConnected ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-success">✓ Connected: {settings.driveEmail || 'Account linked'}</span>
-                <Button variant="outline" size="sm" onClick={disconnectDrive}>
-                  Disconnect
+          
+          <div className="space-y-4">
+            <div className="bg-primary/5 border border-primary/20 rounded p-3">
+              <label className="text-xs font-medium block mb-1">Service Account JSON (Recommended)</label>
+              <p className="text-[10px] text-muted-foreground mb-2">Paste a Google Service Account JSON to completely automate background uploads without any login popups.</p>
+              <Textarea
+                value={settings.serviceAccountJson || ''}
+                onChange={e => update({ serviceAccountJson: e.target.value })}
+                placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
+                className="bg-input border-border font-mono text-xs min-h-[80px]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 my-2">
+              <div className="h-px bg-border flex-1"></div>
+              <span className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wider">OR</span>
+              <div className="h-px bg-border flex-1"></div>
+            </div>
+
+            {settings.driveConnected && !settings.serviceAccountJson && !import.meta.env.VITE_SERVICE_ACCOUNT_JSON ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-success">✓ OAuth Connected: {settings.driveEmail || 'Account linked'}</span>
+                  <Button variant="outline" size="sm" onClick={disconnectDrive}>
+                    Disconnect
+                  </Button>
+                </div>
+              </div>
+            ) : (!settings.serviceAccountJson && !import.meta.env.VITE_SERVICE_ACCOUNT_JSON && (
+              <div className="space-y-3">
+                <Button onClick={connectGoogleDrive} className="gap-2" variant="outline">
+                  <HardDrive className="w-4 h-4" />
+                  Connect via Personal Login (OAuth)
                 </Button>
+                <p className="text-xs text-muted-foreground">
+                  {!GOOGLE_CLIENT_ID
+                    ? 'To enable Google Drive OAuth, add your Google OAuth Client ID in the app configuration.'
+                    : 'Click to authorize access to upload recordings.'}
+                </p>
               </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Drive Folder ID (optional)</label>
-                <Input
-                  value={settings.driveFolderId || ''}
-                  onChange={e => update({ driveFolderId: e.target.value })}
-                  placeholder="Leave empty to upload to root"
-                  className="bg-input border-border text-sm"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Find the folder ID in the Google Drive URL after /folders/</p>
-              </div>
+            ))}
+
+            <div className="pt-2">
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Drive Folder ID (optional)</label>
+              <Input
+                value={settings.driveFolderId || ''}
+                onChange={e => update({ driveFolderId: e.target.value })}
+                placeholder="Leave empty to upload to root"
+                className="bg-input border-border text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Find the folder ID in your Google Drive URL after /folders/</p>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <Button onClick={connectGoogleDrive} className="gap-2">
-                <HardDrive className="w-4 h-4" />
-                Connect Google Drive
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                {!GOOGLE_CLIENT_ID
-                  ? 'To enable Google Drive, add your Google OAuth Client ID in the app configuration. You can create one at the Google Cloud Console → APIs & Services → Credentials.'
-                  : 'Click to authorize access to upload recordings to your Google Drive.'}
-              </p>
-            </div>
-          )}
+          </div>
         </section>
       </div>
     </div>

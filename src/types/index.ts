@@ -56,6 +56,7 @@ export interface Settings {
   queueFilters: QueueFilterState;
   confirmBeforeDelete: boolean;
   activeCampaignId: string;
+  serviceAccountJson: string;
 }
 
 export interface QueueFilterState {
@@ -126,6 +127,7 @@ export const DEFAULT_SETTINGS: Settings = {
   queueFilters: DEFAULT_QUEUE_FILTERS,
   confirmBeforeDelete: false,
   activeCampaignId: '',
+  serviceAccountJson: '',
 };
 
 // Campaigns

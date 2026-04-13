@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Contact } from '@/types';
 import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, uploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
@@ -24,11 +24,23 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
-  const [keepRecording, setKeepRecording] = useState(true);
+  const settings = getSettings();
+  const [saveLocally, setSaveLocally] = useState(() => settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both' || true);
+  const [uploadToDrive, setUploadToDrive] = useState(false);
+  const [manualDriveOverride, setManualDriveOverride] = useState(false);
   const [callRating, setCallRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [callSuccess, setCallSuccess] = useState<boolean | null>(null);
-  const settings = getSettings();
+  
+  const isAutoSuccess = callSuccess === true || actions.has('follow_up') || actions.has('send_proposal') || actions.has('warm_lead');
+
+  useEffect(() => {
+    if (!manualDriveOverride && isAutoSuccess && settings.driveConnected) {
+      setUploadToDrive(true);
+    } else if (!manualDriveOverride && !isAutoSuccess) {
+      setUploadToDrive(false);
+    }
+  }, [isAutoSuccess, manualDriveOverride, settings.driveConnected]);
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const title = `${dateStr} — ${contact.name}`;
@@ -57,7 +69,9 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
 
     // Auto-discard recording if user selects no_answer or phone_not_working
     if ((action === 'no_answer' || action === 'phone_not_working') && !actions.has(action)) {
-      setKeepRecording(false);
+      setSaveLocally(false);
+      setUploadToDrive(false);
+      setManualDriveOverride(true);
     }
   };
 
@@ -77,7 +91,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating, callSuccess ?? undefined, direction);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), saveLocally, uploadToDrive, callRating, callSuccess ?? undefined, direction);
   };
 
   return (
@@ -140,28 +154,50 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
 
         {/* Recording decision */}
         {recordingBlob && (
-          <div className="glass-card p-3 mb-4">
-            <p className="text-sm font-medium mb-2">Recording</p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={keepRecording ? 'default' : 'outline'}
-                onClick={() => setKeepRecording(true)}
-                className="gap-1.5 text-xs flex-1"
-              >
-                <Upload className="w-3 h-3" />
-                {settings.recordingSaveMode === 'drive' ? 'Upload to Drive' : 'Save Recording'}
-              </Button>
-              <Button
-                size="sm"
-                variant={!keepRecording ? 'destructive' : 'outline'}
-                onClick={() => setKeepRecording(false)}
-                className="gap-1.5 text-xs flex-1"
-              >
-                <Trash2 className="w-3 h-3" />
-                Discard
-              </Button>
+          <div className="glass-card p-4 mb-4">
+            <p className="text-sm font-medium mb-3">Recording Options</p>
+            <div className="flex flex-col gap-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   checked={saveLocally} 
+                   onChange={e => setSaveLocally(e.target.checked)} 
+                   className="accent-primary w-4 h-4" 
+                 />
+                 <span className="text-sm font-medium">Download Locally</span>
+              </label>
+              
+              {settings.driveConnected ? (
+                <label className="flex items-center gap-3 cursor-pointer">
+                   <input 
+                     type="checkbox" 
+                     checked={uploadToDrive} 
+                     onChange={e => {
+                       setManualDriveOverride(true);
+                       setUploadToDrive(e.target.checked);
+                     }} 
+                     className="accent-primary w-4 h-4" 
+                   />
+                   <span className="text-sm font-medium flex items-center gap-2">
+                     Upload to Google Drive
+                     {isAutoSuccess && !manualDriveOverride && (
+                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">Auto-Selected (Success)</span>
+                     )}
+                   </span>
+                </label>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground ml-7">
+                  <Upload className="w-4 h-4 opacity-60" />
+                  <span>Google Drive not connected (Enable in Settings)</span>
+                </div>
+              )}
             </div>
+            
+            {(saveLocally || uploadToDrive) ? null : (
+              <p className="text-xs text-destructive mt-3 pt-3 border-t border-border flex items-center gap-1.5 opacity-90">
+                <Trash2 className="w-3.5 h-3.5" /> Recording will be discarded
+              </p>
+            )}
           </div>
         )}
 
