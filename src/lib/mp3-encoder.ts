@@ -1,5 +1,5 @@
 // @ts-nocheck
-import lamejs from 'lamejs';
+import lamejs from 'lamejsfix';
 
 /**
  * Convert a WebM audio blob to MP3 using lamejs.
