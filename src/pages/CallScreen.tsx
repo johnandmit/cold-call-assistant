@@ -678,29 +678,35 @@ export default function CallScreen() {
       {/* Panels */}
       <div className="flex-1 flex min-h-0">
         {/* Call Script Panel (Left) */}
-        <div className="w-[60%] border-r border-border flex flex-col">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-card/30 shrink-0">
+        <div className="w-[60%] border-r border-border flex flex-col bg-[#f0f2f5] dark:bg-slate-900/50">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-background shrink-0">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-primary" />
               <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Call Script</h3>
             </div>
             <span className="text-[10px] text-muted-foreground">Edits sync to Settings</span>
           </div>
-          {callScript ? (
-            <textarea
-              value={callScript}
-              onChange={e => setCallScript(e.target.value)}
-              onBlur={saveCallScript}
-              className="flex-1 p-6 bg-transparent resize-none focus:outline-none text-sm leading-relaxed whitespace-pre-wrap font-sans text-foreground overflow-y-auto"
-              spellCheck={false}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
-              <FileText className="w-10 h-10 mb-3 opacity-40" />
-              <p className="text-sm font-medium">No call script configured</p>
-              <p className="text-xs mt-1 opacity-60">Paste your script in Settings → Call Script</p>
-            </div>
-          )}
+          
+          <div className="flex-1 overflow-y-auto p-8 flex justify-center">
+            {callScript ? (
+              <div className="w-full max-w-[850px] bg-white dark:bg-slate-950 shadow-sm border border-border/50 min-h-full flex flex-col">
+                <textarea
+                  value={callScript}
+                  onChange={e => setCallScript(e.target.value)}
+                  onBlur={saveCallScript}
+                  className="flex-1 p-12 bg-transparent resize-none focus:outline-none text-[1.15rem] leading-[1.6] font-sans text-slate-900 dark:text-slate-100 placeholder:text-slate-300"
+                  spellCheck={false}
+                  placeholder="Type your script here..."
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <FileText className="w-10 h-10 mb-3 opacity-40" />
+                <p className="text-sm font-medium">No call script configured</p>
+                <p className="text-xs mt-1 opacity-60">Paste your script in Settings → Call Script</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Live Notes + AI Suggestions Panel (Right) */}
