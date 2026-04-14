@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic, Check } from 'lucide-react';
+import { Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import RichTextEditor from '@/components/RichTextEditor';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const TIMES = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
@@ -119,11 +120,11 @@ export default function SettingsPage() {
             <h2 className="font-semibold">Call Script</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-3">Paste your call script here. This will be displayed during calls and used for AI suggestions. You can also edit it live during a call.</p>
-          <Textarea
-            value={settings.salesScript}
-            onChange={e => update({ salesScript: e.target.value })}
+          <RichTextEditor
+            content={settings.salesScript}
+            onChange={html => update({ salesScript: html })}
             placeholder="Enter your call script, talking points, objection handling, product info..."
-            className="min-h-[300px] bg-input border-border font-mono text-xs"
+            className="min-h-[400px] bg-input border-border"
           />
         </section>
 
