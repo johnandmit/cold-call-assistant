@@ -119,13 +119,41 @@ export default function SettingsPage() {
             <FileText className="w-4 h-4 text-primary" />
             <h2 className="font-semibold">Call Script</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">Paste your call script here. This will be displayed during calls and used for AI suggestions. You can also edit it live during a call.</p>
-          <RichTextEditor
-            content={settings.salesScript}
-            onChange={html => update({ salesScript: html })}
-            placeholder="Enter your call script, talking points, objection handling, product info..."
-            className="min-h-[400px] bg-input border-border"
-          />
+          <p className="text-xs text-muted-foreground mb-3">
+            Configure your call script here. You can use the internal Rich Text Editor below, or embed an external Google Doc.
+          </p>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                External Google Doc Embed (Optional)
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={settings.googleDocEmbedUrl || ''}
+                  onChange={e => update({ googleDocEmbedUrl: e.target.value })}
+                  placeholder="https://docs.google.com/document/d/..."
+                  className="bg-input border-border"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Paste your Google Doc link here. We'll automatically convert it to a clean embed view. 
+                If this is set, it will override the editor below.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Internal Editor
+              </label>
+              <RichTextEditor
+                content={settings.salesScript}
+                onChange={html => update({ salesScript: html })}
+                placeholder="Enter your call script, talking points, objection handling, product info..."
+                className="min-h-[400px] bg-input border-border"
+              />
+            </div>
+          </div>
         </section>
 
         {/* Transcription API Key */}

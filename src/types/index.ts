@@ -58,6 +58,7 @@ export interface Settings {
   activeCampaignId: string;
   serviceAccountJson: string;
   driveWebhookUrl: string;
+  googleDocEmbedUrl?: string;
 }
 
 export interface QueueFilterState {
@@ -130,6 +131,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeCampaignId: '',
   serviceAccountJson: '',
   driveWebhookUrl: '',
+  googleDocEmbedUrl: '',
 };
 
 // Campaigns

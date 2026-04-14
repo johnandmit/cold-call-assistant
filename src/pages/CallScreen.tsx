@@ -37,7 +37,8 @@ export default function CallScreen() {
   const [isManualRecording, setIsManualRecording] = useState(false);
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
   const [liveNotes, setLiveNotes] = useState(contact?.notes || '');
-  const [callScript, setCallScript] = useState(() => getSettings().salesScript || '');
+  const settings = getSettings();
+  const [callScript, setCallScript] = useState(() => settings.salesScript || '');
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -661,7 +662,28 @@ export default function CallScreen() {
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
-            {callScript ? (
+            {settings.googleDocEmbedUrl ? (
+              <div className="w-full max-w-[900px] h-full bg-white dark:bg-slate-950 shadow-sm border border-border/50 rounded-md overflow-hidden flex flex-col">
+                <iframe
+                  src={(() => {
+                    let url = settings.googleDocEmbedUrl;
+                    if (!url) return '';
+                    // Convert standard links to preview links for cleaner embedding
+                    if (url.includes('/edit')) url = url.split('/edit')[0] + '/preview';
+                    else if (url.includes('/view')) url = url.split('/view')[0] + '/preview';
+                    
+                    // Add minimal UI param if not already there
+                    const separator = url.includes('?') ? '&' : '?';
+                    if (!url.includes('rm=minimal')) url += `${separator}rm=minimal`;
+                    
+                    return url;
+                  })()}
+                  className="w-full h-full border-none"
+                  title="Call Script Document"
+                  allow="autoplay"
+                />
+              </div>
+            ) : callScript ? (
               <div className="w-full max-w-[850px] bg-white dark:bg-slate-950 shadow-sm border border-border/50 min-h-full flex flex-col rounded-md overflow-hidden">
                 <RichTextEditor
                   content={callScript}
