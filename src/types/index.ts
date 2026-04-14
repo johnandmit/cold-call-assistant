@@ -95,7 +95,7 @@ export const TARGET_FIELDS = [
   'rating', 'review_count', 'conversion_confidence_score',
   'outreach_tier', 'average_urgency', 'opening_hours', 'called', 'category',
   'notes', 'call_outcome', 'follow_up_date', 'call_date', 'not_interested',
-  'hidden_from_queue',
+  'hidden_from_queue', 'call_recording_drive_url',
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];

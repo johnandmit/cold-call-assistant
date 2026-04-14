@@ -24,6 +24,7 @@ const FIELD_ALIASES: Record<TargetField, string[]> = {
   call_date: ['calldate', 'datecalled', 'lastcall'],
   not_interested: ['notinterested', 'declined', 'rejected'],
   hidden_from_queue: ['hiddenfromqueue', 'hidden', 'removed', 'softremoved'],
+  call_recording_drive_url: ['callrecordingdriveurl', 'recordingurl', 'audiourl', 'audiorecording', 'recording', 'driveurl', 'recordinglink', 'audiolink'],
 };
 
 // Only auto-detect with HIGH confidence (exact or very close match)

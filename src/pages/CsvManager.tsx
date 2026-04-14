@@ -156,7 +156,7 @@ export default function CsvManager() {
         notes: String(mapped.notes || ''),
         called: parseCalled(calledRaw),
         call_date: String(mapped.call_date || ''),
-        call_recording_drive_url: '',
+        call_recording_drive_url: String(mapped.call_recording_drive_url || ''),
         not_interested: parseCalled(notInterestedRaw),
         follow_up_date: String(mapped.follow_up_date || ''),
         call_outcome: String(mapped.call_outcome || ''),
