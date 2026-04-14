@@ -576,7 +576,7 @@ export default function CallScreen() {
       )}
 
       {/* Previous History Banner */}
-      {(contact.called || contact.notes || contact.follow_up_date) && (
+      {(contact.called || contact.notes || contact.follow_up_date || contact.call_recording_drive_url) && (
         <div className="bg-primary/5 border-b border-primary/10 px-6 py-3 shrink-0 flex flex-col gap-1.5">
            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Clock className="w-4 h-4" /> Previous History
@@ -598,6 +598,16 @@ export default function CallScreen() {
                <div className="flex items-center gap-1.5 bg-destructive/10 border border-destructive/30 px-2 py-1 rounded text-destructive">
                  <AlertTriangle className="w-3.5 h-3.5" /> Marked as Not Interested
                </div>
+             )}
+             {contact.call_recording_drive_url && (
+               <a
+                 href={contact.call_recording_drive_url}
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 className="flex items-center gap-1.5 bg-primary/10 border border-primary/30 px-2 py-1 rounded text-primary hover:bg-primary/20 transition-colors"
+               >
+                 <ExternalLink className="w-3.5 h-3.5" /> 🎙️ Previous Recording
+               </a>
              )}
            </div>
            

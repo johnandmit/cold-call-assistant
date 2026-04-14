@@ -5,7 +5,7 @@ import { getContacts, saveContacts, updateContact, getSettings, saveSettings } f
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
 import { isContactSuppressed, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square, ExternalLink, Headphones } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -485,6 +485,17 @@ export default function CallQueue() {
             <div>
               <label className="text-xs font-medium text-muted-foreground">Notes</label>
               <Input value={editingContact.notes} onChange={e => setEditingContact({ ...editingContact, notes: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">Audio Recording URL <Headphones className="w-3 h-3" /></label>
+              <div className="flex gap-2">
+                <Input value={editingContact.call_recording_drive_url || ''} onChange={e => setEditingContact({ ...editingContact, call_recording_drive_url: e.target.value })} placeholder="https://drive.google.com/..." className="bg-input border-border flex-1" />
+                {editingContact.call_recording_drive_url && (
+                  <a href={editingContact.call_recording_drive_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-9 h-9 rounded-md border border-border hover:bg-accent transition-colors text-primary shrink-0">
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
             </div>
             <div className="flex gap-2 pt-2">
               <Button onClick={saveInlineEdit} className="flex-1">Save</Button>

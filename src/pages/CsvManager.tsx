@@ -851,6 +851,7 @@ export default function CsvManager() {
                 ['google_maps_url', 'Google Maps URL'],
                 ['opening_hours', 'Opening Hours'],
                 ['category', 'Category / Niche'],
+                ['call_recording_drive_url', '🎙️ Audio Recording URL'],
               ] as const).map(([key, label]) => (
                 <div key={key}>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
