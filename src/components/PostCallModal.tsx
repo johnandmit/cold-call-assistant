@@ -16,11 +16,12 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
+  liveNotes?: string;
   onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, uploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
 }
 
-export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
-  const [notes, setNotes] = useState(contact.notes || '');
+export default function PostCallModal({ contact, transcript, recordingBlob, duration, liveNotes, onDone }: Props) {
+  const [notes, setNotes] = useState(liveNotes || contact.notes || '');
   const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');

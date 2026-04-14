@@ -116,14 +116,14 @@ export default function SettingsPage() {
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <FileText className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Sales Script / AI Context</h2>
+            <h2 className="font-semibold">Call Script</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">This text is sent to the AI with every suggestion request.</p>
+          <p className="text-xs text-muted-foreground mb-3">Paste your call script here. This will be displayed during calls and used for AI suggestions. You can also edit it live during a call.</p>
           <Textarea
             value={settings.salesScript}
             onChange={e => update({ salesScript: e.target.value })}
-            placeholder="Enter your sales script, product info, and talking points..."
-            className="min-h-[150px] bg-input border-border font-mono text-xs"
+            placeholder="Enter your call script, talking points, objection handling, product info..."
+            className="min-h-[300px] bg-input border-border font-mono text-xs"
           />
         </section>
 

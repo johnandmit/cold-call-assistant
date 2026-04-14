@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
-import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage';
+import { getSettings, saveSettings, addCall, updateContact, getContacts } from '@/lib/storage';
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward, Bell } from 'lucide-react';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward, Bell, FileText, RotateCcw, StickyNote } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
@@ -34,6 +35,8 @@ export default function CallScreen() {
   const [showBusinessInfo, setShowBusinessInfo] = useState(true);
   const [isManualRecording, setIsManualRecording] = useState(false);
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
+  const [liveNotes, setLiveNotes] = useState(contact?.notes || '');
+  const [callScript, setCallScript] = useState(() => getSettings().salesScript || '');
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -209,11 +212,27 @@ export default function CallScreen() {
     }
   };
 
-  useEffect(() => {
-    if (transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  // Clear recording — discard all chunks and restart the recorder
+  const clearRecording = useCallback(() => {
+    chunksRef.current = [];
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      // Stop and restart to clear internal buffer
+      mediaRecorderRef.current.stop();
+      recordingStartedRef.current = false;
+      // Small delay then restart
+      setTimeout(() => {
+        startRecording();
+      }, 100);
     }
-  }, [transcript, interimText]);
+    toast.success('Recording cleared — starting fresh');
+  }, [startRecording]);
+
+  // Save call script back to settings on blur
+  const saveCallScript = useCallback(() => {
+    const settings = getSettings();
+    settings.salesScript = callScript;
+    saveSettings(settings);
+  }, [callScript]);
 
   // AI Suggestions — only if API keys are configured
   useEffect(() => {
@@ -347,7 +366,7 @@ export default function CallScreen() {
         updateContact(contact.id, {
           called: didPickUp,
           call_date: didPickUp ? now : (contact.call_date || ''),
-          notes: notes || contact.notes,
+          notes: notes || liveNotes || contact.notes,
           not_interested: contact.not_interested,
           follow_up_date: followUpDate || '',
           call_outcome: outcome || '',
@@ -378,7 +397,12 @@ export default function CallScreen() {
           toast.promise(uploadToDrive(recordingBlob, filename), {
             loading: 'Uploading recording to Google Drive...',
             success: (driveUrl) => {
-              updateContact(contact.id, { call_recording_drive_url: driveUrl });
+              // Append new recording URL with date instead of replacing
+              const existing = contact.call_recording_drive_url || '';
+              const dateStr = new Date().toISOString().slice(0, 10);
+              const newEntry = `${dateStr}|${driveUrl}`;
+              const combined = existing ? `${existing};${newEntry}` : newEntry;
+              updateContact(contact.id, { call_recording_drive_url: combined });
               return 'Recording saved to Google Drive';
             },
             error: (err) => {
@@ -507,6 +531,17 @@ export default function CallScreen() {
               <><Mic className="w-3.5 h-3.5" /> Start Rec</>
             )}
           </Button>
+          {(recordingStartedRef.current || isManualRecording) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearRecording}
+              className="gap-1.5 text-xs h-8 text-warning border-warning/30 hover:bg-warning/10"
+              title="Discard current recording and start fresh"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Clear Rec
+            </Button>
+          )}
 
           {(speechDetectedRef.current || isManualRecording) && (
             <div className="flex items-center gap-1.5">
@@ -600,16 +635,27 @@ export default function CallScreen() {
                  <AlertTriangle className="w-3.5 h-3.5" /> Marked as Not Interested
                </div>
              )}
-             {contact.call_recording_drive_url && (
-               <a
-                 href={contact.call_recording_drive_url}
-                 target="_blank"
-                 rel="noopener noreferrer"
-                 className="flex items-center gap-1.5 bg-primary/10 border border-primary/30 px-2 py-1 rounded text-primary hover:bg-primary/20 transition-colors"
-               >
-                 <ExternalLink className="w-3.5 h-3.5" /> 🎙️ Previous Recording
-               </a>
-             )}
+             {contact.call_recording_drive_url && (() => {
+               // Parse multi-recording format: "date|url;date|url" or legacy single URL
+               const entries = contact.call_recording_drive_url.includes('|')
+                 ? contact.call_recording_drive_url.split(';').map((entry, idx) => {
+                     const [date, url] = entry.split('|');
+                     return { date, url, idx: idx + 1 };
+                   })
+                 : [{ date: '', url: contact.call_recording_drive_url, idx: 1 }];
+               return entries.map(({ date, url, idx }) => (
+                 <a
+                   key={idx}
+                   href={url}
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   className="flex items-center gap-1.5 bg-primary/10 border border-primary/30 px-2 py-1 rounded text-primary hover:bg-primary/20 transition-colors"
+                 >
+                   <ExternalLink className="w-3.5 h-3.5" />
+                   🎙️ Recording {idx}{date ? ` — ${new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
+                 </a>
+               ));
+             })()}
            </div>
            
            {contact.notes && (
@@ -623,93 +669,102 @@ export default function CallScreen() {
 
       {/* Panels */}
       <div className="flex-1 flex min-h-0">
-        {/* Transcript */}
-        <div className="w-[65%] border-r border-border flex flex-col relative">
-          {callActive && (speechDetectedRef.current || isManualRecording) && (
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-              <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
-              <span className="text-xs font-semibold text-destructive">REC</span>
+        {/* Call Script Panel (Left) */}
+        <div className="w-[60%] border-r border-border flex flex-col">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-card/30 shrink-0">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Call Script</h3>
             </div>
-          )}
-          {!speechSupported && (
-            <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning">
-              Live transcription requires Chrome or Edge
-            </div>
-          )}
-          {!transcriptionEnabled && (
-            <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Transcription disabled — add an Agora API key in Settings to enable. Recording still works via the manual button.</span>
-            </div>
-          )}
-          <div ref={transcriptRef} className="flex-1 overflow-y-auto p-6 transcript-scroll">
-            {!transcript && !interimText ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <Mic className="w-10 h-10 mb-3 opacity-40" />
-                <p className="text-sm">Listening... Start speaking to see the transcript</p>
-                <p className="text-xs mt-1 opacity-60">Recording will start when speech is detected</p>
-              </div>
-            ) : (
-              <div className="whitespace-pre-wrap">
-                <span className="text-foreground">{transcript}</span>
-                {interimText && <span className="text-muted-foreground italic">{interimText}</span>}
-              </div>
-            )}
+            <span className="text-[10px] text-muted-foreground">Edits sync to Settings</span>
           </div>
+          {callScript ? (
+            <textarea
+              value={callScript}
+              onChange={e => setCallScript(e.target.value)}
+              onBlur={saveCallScript}
+              className="flex-1 p-6 bg-transparent resize-none focus:outline-none text-sm leading-relaxed whitespace-pre-wrap font-sans text-foreground overflow-y-auto"
+              spellCheck={false}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+              <FileText className="w-10 h-10 mb-3 opacity-40" />
+              <p className="text-sm font-medium">No call script configured</p>
+              <p className="text-xs mt-1 opacity-60">Paste your script in Settings → Call Script</p>
+            </div>
+          )}
         </div>
 
-        {/* Suggestions */}
-        <div className="w-[35%] flex flex-col p-4 gap-3 overflow-y-auto">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">AI Suggestions</h3>
-          {(() => {
-            const settings = getSettings();
-            const hasKeys = settings.geminiApiKeys.length > 0 || !!settings.geminiApiKey;
-            if (!hasKeys) {
-              return (
-                <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-                  Add your Gemini API key in Settings to enable AI suggestions
-                </div>
-              );
-            }
-            return null;
-          })()}
-          {suggestionsError && (
-            <div className="glass-card p-4 text-center text-sm text-warning">{suggestionsError}</div>
-          )}
-          {!transcript.trim() && (
-            <div className="glass-card p-4 text-center text-sm text-muted-foreground">Suggestions paused — waiting for transcript</div>
-          )}
-          {transcript.trim() && suggestions.length === 0 && !suggestionsError && (
-            <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-              <div className="w-6 h-6 border-2 border-primary/40 border-t-primary rounded-full animate-spin mx-auto mb-2" />
-              Generating suggestions...
+        {/* Live Notes + AI Suggestions Panel (Right) */}
+        <div className="w-[40%] flex flex-col">
+          {/* Compact AI Suggestions */}
+          <div className="border-b border-border/50 shrink-0">
+            <div className="flex items-center justify-between px-4 py-2 bg-card/30">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">AI Suggestions</h3>
+              <span className="text-[10px] text-muted-foreground">{suggestions.length} active</span>
             </div>
-          )}
-          <AnimatePresence mode="popLayout">
-            {suggestions.map((card, idx) => (
-              <motion.div
-                key={`${card.type}-${card.title}-${idx}`}
-                initial={{ x: 20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -20, opacity: 0 }}
-                transition={{ duration: 0.3, delay: idx * 0.05 }}
-                className={`glass-card p-4 relative ${
-                  card.type === 'response' ? 'suggestion-response' : card.type === 'objection' ? 'suggestion-objection' : 'suggestion-insight'
-                }`}
-              >
-                <button onClick={() => dismissSuggestion(idx)} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                    card.type === 'response' ? 'text-primary' : card.type === 'objection' ? 'text-warning' : 'text-purple'
-                  }`}>{card.type}</span>
+            <div className="max-h-[200px] overflow-y-auto p-3 space-y-2">
+              {(() => {
+                const settings = getSettings();
+                const hasKeys = settings.geminiApiKeys.length > 0 || !!settings.geminiApiKey;
+                if (!hasKeys) {
+                  return (
+                    <div className="text-center text-xs text-muted-foreground py-2">
+                      Add Gemini API key in Settings for AI suggestions
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              {suggestionsError && (
+                <div className="text-center text-xs text-warning py-1">{suggestionsError}</div>
+              )}
+              {suggestions.length === 0 && transcript.trim() && !suggestionsError && (
+                <div className="text-center text-xs text-muted-foreground py-2">
+                  <div className="w-4 h-4 border-2 border-primary/40 border-t-primary rounded-full animate-spin mx-auto mb-1" />
+                  Generating...
                 </div>
-                <h4 className="font-semibold text-sm mb-1">{card.title}</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed">{card.body}</p>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+              )}
+              <AnimatePresence mode="popLayout">
+                {suggestions.map((card, idx) => (
+                  <motion.div
+                    key={`${card.type}-${card.title}-${idx}`}
+                    initial={{ x: 10, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: -10, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className={`rounded-lg border p-3 relative text-xs ${
+                      card.type === 'response' ? 'suggestion-response' : card.type === 'objection' ? 'suggestion-objection' : 'suggestion-insight'
+                    }`}
+                  >
+                    <button onClick={() => dismissSuggestion(idx)} className="absolute top-1.5 right-1.5 text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="w-3 h-3" />
+                    </button>
+                    <span className={`text-[9px] uppercase font-bold tracking-wider ${
+                      card.type === 'response' ? 'text-primary' : card.type === 'objection' ? 'text-warning' : 'text-purple'
+                    }`}>{card.type}</span>
+                    <h4 className="font-semibold text-xs mt-0.5">{card.title}</h4>
+                    <p className="text-muted-foreground leading-relaxed mt-0.5">{card.body}</p>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Live Notes */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex items-center gap-2 px-4 py-2 bg-card/30 border-b border-border/50 shrink-0">
+              <StickyNote className="w-4 h-4 text-primary" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Notes</h3>
+              <span className="text-[10px] text-muted-foreground ml-auto">Carries over to post-call review</span>
+            </div>
+            <textarea
+              value={liveNotes}
+              onChange={e => setLiveNotes(e.target.value)}
+              placeholder="Type your notes here during the call..."
+              className="flex-1 p-4 bg-transparent resize-none focus:outline-none text-sm leading-relaxed font-sans text-foreground overflow-y-auto placeholder:text-muted-foreground/50"
+            />
+          </div>
         </div>
       </div>
 
@@ -720,6 +775,7 @@ export default function CallScreen() {
           transcript={transcriptAccRef.current}
           recordingBlob={recordingBlob}
           duration={seconds}
+          liveNotes={liveNotes}
           onDone={handlePostCallDone}
         />
       )}
