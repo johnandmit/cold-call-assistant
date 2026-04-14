@@ -240,8 +240,6 @@ export default function CallScreen() {
     saveSettings(settings);
   }, [callScript]);
 
-  }, [callScript]);
-
   const endCall = useCallback(async () => {
     setCallActive(false);
     try { recognitionRef.current?.stop(); } catch {}
