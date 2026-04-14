@@ -398,20 +398,20 @@ export default function CallScreen() {
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
 
     // Check for any due follow-ups before auto-advancing
-    const allContacts = getContacts();
-    const now = new Date();
-    const dueFollowUp = allContacts.find(c =>
+    const dueFollowUps = allContacts.filter(c =>
       c.follow_up_date &&
       new Date(c.follow_up_date) <= now &&
       c.id !== contact?.id &&
       !c.not_interested
     );
 
-    if (dueFollowUp) {
-      // Follow-up is due — prioritize it over the normal queue order
-      toast.info(`Follow-up due: ${dueFollowUp.name}`, {
-        description: 'Routing to follow-up contact...',
-        duration: 3000,
+    if (dueFollowUps.length > 0) {
+      const dueFollowUp = dueFollowUps[0];
+      const count = dueFollowUps.length;
+      
+      toast.info(count > 1 ? `${count} Follow-ups due!` : `Follow-up due: ${dueFollowUp.name}`, {
+        description: count > 1 ? `Routing to ${dueFollowUp.name} first...` : 'Routing to follow-up contact...',
+        duration: 4000,
       });
       navigate('/', { replace: true });
       setTimeout(() => {

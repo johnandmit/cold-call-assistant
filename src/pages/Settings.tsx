@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic } from 'lucide-react';
+import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
