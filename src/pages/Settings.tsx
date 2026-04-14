@@ -148,7 +148,7 @@ export default function SettingsPage() {
               </label>
               <RichTextEditor
                 content={settings.salesScript}
-                onChange={html => update({ salesScript: html })}
+                onBlur={html => update({ salesScript: html })}
                 placeholder="Enter your call script, talking points, objection handling, product info..."
                 className="min-h-[400px] bg-input border-border"
               />

@@ -9,7 +9,6 @@ import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
-import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
 import RichTextEditor from '@/components/RichTextEditor';
 import { v4 } from '@/lib/uuid';
