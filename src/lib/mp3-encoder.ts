@@ -1,18 +1,13 @@
-// @ts-nocheck
-import lamejs from 'lamejs';
-
 /**
- * Convert a WebM audio blob to MP3 using lamejs.
- * Uses the Web Audio API to decode the WebM, then encodes to MP3.
+ * Convert a WebM audio blob to WAV.
+ * This guarantees proper duration headers so the audio is seekable in all players.
  */
 export async function convertToMp3(webmBlob: Blob): Promise<Blob> {
   const arrayBuffer = await webmBlob.arrayBuffer();
   const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-  const numChannels = 1; // mono for voice
   const sampleRate = audioBuffer.sampleRate;
-  const kbps = 128;
 
   // Get audio data as Float32Array, downmix to mono if needed
   let samples: Float32Array;
@@ -28,32 +23,76 @@ export async function convertToMp3(webmBlob: Blob): Promise<Blob> {
     }
   }
 
-  // Convert float32 samples to int16
-  const int16Samples = new Int16Array(samples.length);
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    int16Samples[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
+  // Trim initial silence (up to 30 seconds)
+  const maxTrimSamples = sampleRate * 30;
+  const threshold = 0.015; // Absolute amplitude threshold for silence
+  const blockSizeTrim = Math.floor(sampleRate * 0.1); // Check in 100ms blocks
+  let trimStartIndex = 0;
 
-  // Encode with lamejs
-  const mp3Encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, kbps);
-  const mp3Data: Int8Array[] = [];
-  const blockSize = 1152;
-
-  for (let i = 0; i < int16Samples.length; i += blockSize) {
-    const chunk = int16Samples.subarray(i, i + blockSize);
-    const mp3buf = mp3Encoder.encodeBuffer(chunk);
-    if (mp3buf.length > 0) {
-      mp3Data.push(new Int8Array(mp3buf));
+  for (let i = 0; i < Math.min(samples.length, maxTrimSamples); i += blockSizeTrim) {
+    let sum = 0;
+    const end = Math.min(i + blockSizeTrim, samples.length);
+    for (let j = i; j < end; j++) {
+      sum += Math.abs(samples[j]);
     }
+    const avg = sum / (end - i);
+    if (avg > threshold) {
+      break; // Sound detected
+    }
+    trimStartIndex = end;
   }
 
-  const end = mp3Encoder.flush();
-  if (end.length > 0) {
-    mp3Data.push(new Int8Array(end));
+  // Keep a 0.5s buffer before the sound actually starts to prevent harsh cut-offs
+  trimStartIndex = Math.max(0, trimStartIndex - Math.floor(sampleRate * 0.5));
+  
+  if (trimStartIndex > 0) {
+    samples = samples.subarray(trimStartIndex);
   }
 
+  // Generate standard WAV RIFF header and payload
+  const wavBuffer = encodeWav(samples, sampleRate);
+  
   await audioContext.close();
 
-  return new Blob(mp3Data, { type: 'audio/mpeg' });
+  // Return a WAV blob instead of MP3 (keeping function name same for compatibility)
+  return new Blob([wavBuffer], { type: 'audio/wav' });
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  // write float32 to int16
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return buffer;
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
 }

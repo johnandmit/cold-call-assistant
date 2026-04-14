@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
-import { getSettings, addCall, updateContact, getContacts } from '@/lib/storage';
+import { getSettings, saveSettings, addCall, updateContact, getContacts } from '@/lib/storage';
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
-import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle } from 'lucide-react';
+import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward, Bell, FileText, RotateCcw, StickyNote } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import PostCallModal from '@/components/PostCallModal';
+import RichTextEditor from '@/components/RichTextEditor';
 import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
 import { convertToMp3 } from '@/lib/mp3-encoder';
+
 import { toast } from 'sonner';
 
 export default function CallScreen() {
@@ -25,14 +28,16 @@ export default function CallScreen() {
   const [interimText, setInterimText] = useState('');
   const [callActive, setCallActive] = useState(true);
   const [seconds, setSeconds] = useState(0);
-  const [suggestions, setSuggestions] = useState<SuggestionCardType[]>([]);
-  const [suggestionsError, setSuggestionsError] = useState('');
+  const [totalSeconds, setTotalSeconds] = useState(0);
   const [showPostCall, setShowPostCall] = useState(false);
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [speechSupported, setSpeechSupported] = useState(true);
   const [showBusinessInfo, setShowBusinessInfo] = useState(true);
   const [isManualRecording, setIsManualRecording] = useState(false);
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(true);
+  const [liveNotes, setLiveNotes] = useState(contact?.notes || '');
+  const settings = getSettings();
+  const [callScript, setCallScript] = useState(() => settings.salesScript || '');
 
   const transcriptRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -48,7 +53,10 @@ export default function CallScreen() {
   // Timer
   useEffect(() => {
     if (!callActive) return;
-    const id = setInterval(() => setSeconds(s => s + 1), 1000);
+    const id = setInterval(() => {
+      setSeconds(s => s + 1);
+      setTotalSeconds(s => s + 1);
+    }, 1000);
     return () => clearInterval(id);
   }, [callActive]);
 
@@ -87,7 +95,6 @@ export default function CallScreen() {
 
       if ((final || interim) && !speechDetectedRef.current) {
         speechDetectedRef.current = true;
-        startRecording();
       }
 
       if (final) {
@@ -117,18 +124,6 @@ export default function CallScreen() {
       try { recognitionRef.current.stop(); } catch {}
     }
   }, [callActive]);
-
-  // Auto-start recording as soon as mic stream is available
-  useEffect(() => {
-    navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
-      mediaStreamRef.current = stream;
-      // Auto-start recording immediately
-      startRecording();
-    }).catch(() => {});
-    return () => {
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    };
-  }, []);
 
   const startRecording = useCallback(() => {
     if (recordingStartedRef.current || !mediaStreamRef.current) return;
@@ -179,6 +174,17 @@ export default function CallScreen() {
     setIsManualRecording(true);
   }, []);
 
+  // Auto-start recording as soon as mic stream is available
+  useEffect(() => {
+    navigator.mediaDevices?.getUserMedia({ audio: true }).then(stream => {
+      mediaStreamRef.current = stream;
+      startRecording();
+    }).catch(() => {});
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, [startRecording]);
+
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise(resolve => {
       if (!recordingStartedRef.current || !mediaRecorderRef.current) {
@@ -210,36 +216,28 @@ export default function CallScreen() {
     }
   };
 
-  useEffect(() => {
-    if (transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  // Clear recording — discard all chunks and restart the recorder
+  const clearRecording = useCallback(() => {
+    chunksRef.current = [];
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      // Stop and restart to clear internal buffer
+      mediaRecorderRef.current.stop();
+      recordingStartedRef.current = false;
+      // Small delay then restart
+      setTimeout(() => {
+        startRecording();
+      }, 100);
     }
-  }, [transcript, interimText]);
+    setSeconds(0);
+    toast.success('Recording cleared — starting fresh');
+  }, [startRecording]);
 
-  // AI Suggestions — only if API keys are configured
-  useEffect(() => {
-    if (!callActive) return;
+  // Save call script back to settings on blur
+  const saveCallScript = useCallback(() => {
     const settings = getSettings();
-    const keys = settings.geminiApiKeys.length > 0 ? settings.geminiApiKeys : (settings.geminiApiKey ? [settings.geminiApiKey] : []);
-    if (!keys.length) return; // No keys = no suggestions, but recording still works
-
-    const rate = (settings.suggestionRefreshRate || 10) * 1000;
-
-    const fetchAI = async () => {
-      if (!transcriptAccRef.current.trim()) return;
-      try {
-        const cards = await fetchSuggestions(keys, transcriptAccRef.current, settings.salesScript);
-        setSuggestions(cards);
-        setSuggestionsError('');
-      } catch {
-        setSuggestionsError('Suggestions unavailable');
-      }
-    };
-
-    const id = setInterval(fetchAI, rate);
-    const initialTimeout = setTimeout(fetchAI, 3000);
-    return () => { clearInterval(id); clearTimeout(initialTimeout); };
-  }, [callActive]);
+    settings.salesScript = callScript;
+    saveSettings(settings);
+  }, [callScript]);
 
   const endCall = useCallback(async () => {
     setCallActive(false);
@@ -258,138 +256,211 @@ export default function CallScreen() {
     navigate('/');
   }, [navigate]);
 
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => {
-    if (contact) {
-      const session = getOrCreateActiveSession();
-      const callId = v4();
-      const now = new Date().toISOString();
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
-
-      addCall({
-        id: callId,
-        contact_id: contact.id,
-        contact_name: contact.name,
-        started_at: new Date(startTimeRef.current).toISOString(),
-        ended_at: now,
-        duration_seconds: seconds,
-        transcript: transcriptAccRef.current,
-        recording_filename: keepRecording ? filename : '',
-        recording_drive_url: '',
-        notes,
-        actions_taken: actions,
-        call_rating: callRating || 0,
-        call_success: callSuccess,
-        session_id: session.id,
-        category: contact.category || '',
-      });
-
-      const isRevert = actions.includes('revert_uncalled');
-      const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
-      const didPickUp = !isRevert && !isSuppressed; // Only count as called if they actually picked up
-      const isRemoved = actions.includes('remove_from_queue');
-
-      updateContact(contact.id, {
-        called: didPickUp,
-        call_date: didPickUp ? now : (contact.call_date || ''),
-        notes: notes || contact.notes,
-        not_interested: actions.includes('not_interested'),
-        follow_up_date: followUpDate || '',
-        call_outcome: outcome || '',
-        hidden_from_queue: isRemoved || contact.hidden_from_queue,
-      });
-
-      if (isSuppressed) {
-        suppressContact(contact.id);
-      }
-
-      recordCallOutcome(outcome || 'completed');
-    }
-
-    // Handle recording save
-    const settings = getSettings();
-    if (keepRecording && recordingBlob && contact) {
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
-      if (settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both') {
-        const url = URL.createObjectURL(recordingBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-      if ((settings.recordingSaveMode === 'drive' || settings.recordingSaveMode === 'both') && settings.driveConnected) {
-        uploadToDrive(recordingBlob, filename)
-          .then(driveUrl => {
-            updateContact(contact.id, { call_recording_drive_url: driveUrl });
-          })
-          .catch(err => {
-            console.error('Drive upload failed:', err);
-            // Fallback: download locally if drive fails
-            const url = URL.createObjectURL(recordingBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(url);
+  const goToPreviousLead = useCallback(() => {
+    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex > 0) {
+      setCallActive(false);
+      try { recognitionRef.current?.stop(); } catch {}
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+      
+      const prevIndex = currentQueueIndex - 1;
+      const allContacts = getContacts();
+      const prevContact = allContacts.find(c => c.id === queueIds[prevIndex]);
+      
+      if (prevContact) {
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: prevContact, queueIds, queueIndex: prevIndex },
+            replace: true,
           });
+        }, 50);
+      } else {
+        navigate('/');
       }
     }
+  }, [queueIds, currentQueueIndex, navigate]);
 
-    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-
-    // Check for any due follow-ups before auto-advancing
-    const allContacts = getContacts();
-    const now = new Date();
-    const dueFollowUp = allContacts.find(c =>
-      c.follow_up_date &&
-      new Date(c.follow_up_date) <= now &&
-      c.id !== contact?.id &&
-      !c.not_interested
-    );
-
-    if (dueFollowUp) {
-      // Follow-up is due — prioritize it over the normal queue order
-      toast.info(`Follow-up due: ${dueFollowUp.name}`, {
-        description: 'Routing to follow-up contact...',
-        duration: 3000,
-      });
-      navigate('/', { replace: true });
-      setTimeout(() => {
-        navigate('/call', {
-          state: { contact: dueFollowUp, queueIds: queueIds || [dueFollowUp.id], queueIndex: 0 },
-          replace: true,
-        });
-      }, 50);
-      return;
-    }
-
-    // Auto-advance to next lead in queue
-    if (queueIds && currentQueueIndex !== undefined) {
+  const goToNextLead = useCallback(() => {
+    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex < queueIds.length - 1) {
+      setCallActive(false);
+      try { recognitionRef.current?.stop(); } catch {}
+      try { mediaRecorderRef.current?.stop(); } catch {}
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+      
       const nextIndex = currentQueueIndex + 1;
-      if (nextIndex < queueIds.length) {
-        const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
-        if (nextContact) {
-          // Navigate away briefly then to the next call to force remount
-          navigate('/', { replace: true });
-          setTimeout(() => {
-            navigate('/call', {
-              state: { contact: nextContact, queueIds, queueIndex: nextIndex },
-              replace: true,
-            });
-          }, 50);
-          return;
+      const allContacts = getContacts();
+      const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
+      
+      if (nextContact) {
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: nextContact, queueIds, queueIndex: nextIndex },
+            replace: true,
+          });
+        }, 50);
+      } else {
+        navigate('/');
+      }
+    }
+  }, [queueIds, currentQueueIndex, navigate]);
+  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
+    // 1. Immediately close the modal to prevent it from sticking
+    setShowPostCall(false);
+
+    try {
+      if (contact) {
+        const session = getOrCreateActiveSession();
+        const callId = v4();
+        const now = new Date().toISOString();
+        const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
+
+        const isRevert = actions.includes('revert_uncalled');
+        const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
+        const didPickUp = !isRevert;
+        const isRemoved = actions.includes('remove_from_queue');
+
+        if (!isRevert) {
+          addCall({
+            id: callId,
+            contact_id: contact.id,
+            contact_name: contact.name,
+            started_at: new Date(startTimeRef.current).toISOString(),
+            ended_at: now,
+            duration_seconds: totalSeconds,
+            transcript: transcriptAccRef.current,
+            recording_filename: (saveLocally || shouldUploadToDrive) ? filename : '',
+            recording_drive_url: '',
+            notes,
+            actions_taken: actions,
+            call_rating: callRating || 0,
+            call_success: callSuccess,
+            session_id: session.id,
+            category: contact.category || '',
+          });
+
+          recordCallOutcome(outcome || 'completed');
+        }
+
+        updateContact(contact.id, {
+          called: didPickUp,
+          call_date: didPickUp ? now : (contact.call_date || ''),
+          notes: notes || liveNotes || contact.notes,
+          not_interested: contact.not_interested,
+          follow_up_date: followUpDate || '',
+          call_outcome: outcome || '',
+          hidden_from_queue: isRemoved || outcome === 'phone_not_working' || contact.hidden_from_queue,
+        });
+
+        // Only session-suppress 'no answer' — phone_not_working is hidden forever above
+        if (outcome === 'no_answer') {
+          suppressContact(contact.id);
         }
       }
-    }
 
-    navigate('/');
+      // Handle recording save (non-blocking)
+      const settings = getSettings();
+      if ((saveLocally || shouldUploadToDrive) && recordingBlob && contact) {
+        const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
+        
+        if (saveLocally) {
+          const url = URL.createObjectURL(recordingBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        
+        if (shouldUploadToDrive && settings.driveConnected) {
+          toast.promise(uploadToDrive(recordingBlob, filename), {
+            loading: 'Uploading recording to Google Drive...',
+            success: (driveUrl) => {
+              // Append new recording URL with date instead of replacing
+              const existing = contact.call_recording_drive_url || '';
+              const dateStr = new Date().toISOString().slice(0, 10);
+              const newEntry = `${dateStr}|${driveUrl}`;
+              const combined = existing ? `${existing};${newEntry}` : newEntry;
+              updateContact(contact.id, { call_recording_drive_url: combined });
+              return 'Recording saved to Google Drive';
+            },
+            error: (err) => {
+              console.error('Drive upload failed:', err);
+              // Fallback: download locally if drive fails and we haven't already
+              if (!saveLocally) {
+                const url = URL.createObjectURL(recordingBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                return 'Drive upload failed. Recording downloaded locally.';
+              }
+              return `Drive upload failed: ${err.message || 'Unknown error'}`;
+            }
+          });
+        }
+      }
+
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+
+      // Transition to next lead
+      const allContacts = getContacts();
+      const now = new Date();
+      const dueFollowUps = allContacts.filter(c =>
+        c.follow_up_date &&
+        new Date(c.follow_up_date) <= now &&
+        c.id !== contact?.id &&
+        !c.not_interested
+      );
+
+      if (dueFollowUps.length > 0) {
+        const dueFollowUp = dueFollowUps[0];
+        const count = dueFollowUps.length;
+        
+        toast.info(count > 1 ? `${count} Follow-ups due!` : `Follow-up due: ${dueFollowUp.name}`, {
+          description: count > 1 ? `Routing to ${dueFollowUp.name} first...` : 'Routing to follow-up contact...',
+          duration: 4000,
+        });
+
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: dueFollowUp, queueIds: queueIds || [dueFollowUp.id], queueIndex: 0 },
+            replace: true,
+          });
+        }, 50);
+        return;
+      }
+
+      if (queueIds && currentQueueIndex !== undefined) {
+        const targetIndex = direction === 'forward' ? currentQueueIndex + 1 : currentQueueIndex - 1;
+        if (targetIndex >= 0 && targetIndex < queueIds.length) {
+          const targetContact = allContacts.find(c => c.id === queueIds[targetIndex]);
+          if (targetContact) {
+            navigate('/', { replace: true });
+            setTimeout(() => {
+              navigate('/call', {
+                state: { contact: targetContact, queueIds, queueIndex: targetIndex },
+                replace: true,
+              });
+            }, 50);
+            return;
+          }
+        }
+      }
+
+      navigate('/');
+    } catch (err) {
+      console.error('Error in post-call transition:', err);
+      toast.error('Error saving call. Returning to queue.');
+      navigate('/');
+    }
   };
+
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
-
-  const dismissSuggestion = (idx: number) => {
-    setSuggestions(prev => prev.filter((_, i) => i !== idx));
-  };
 
   if (!contact) {
     return (
@@ -436,6 +507,17 @@ export default function CallScreen() {
               <><Mic className="w-3.5 h-3.5" /> Start Rec</>
             )}
           </Button>
+          {(recordingStartedRef.current || isManualRecording) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearRecording}
+              className="gap-1.5 text-xs h-8 text-warning border-warning/30 hover:bg-warning/10"
+              title="Discard current recording and start fresh"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Clear Rec
+            </Button>
+          )}
 
           {(speechDetectedRef.current || isManualRecording) && (
             <div className="flex items-center gap-1.5">
@@ -443,7 +525,22 @@ export default function CallScreen() {
               <span className="text-xs font-semibold text-destructive">REC</span>
             </div>
           )}
-          <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+          <div className="flex flex-col items-end leading-tight">
+            <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+            <span className="font-mono text-[10px] text-muted-foreground tabular-nums">Total: {formatTime(totalSeconds)}</span>
+          </div>
+          {currentQueueIndex !== undefined && currentQueueIndex > 0 && (
+            <Button onClick={goToPreviousLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
+              <SkipBack className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Prev Lead</span>
+            </Button>
+          )}
+          {queueIds && currentQueueIndex !== undefined && currentQueueIndex < queueIds.length - 1 && (
+            <Button onClick={goToNextLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
+              <span className="hidden xl:inline">Next Lead</span>
+              <SkipForward className="w-3.5 h-3.5" />
+            </Button>
+          )}
           <Button onClick={exitWithoutLogging} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
             <LogOut className="w-3.5 h-3.5" />
             Exit
@@ -493,95 +590,128 @@ export default function CallScreen() {
         </div>
       )}
 
+      {/* Previous History Banner */}
+      {(contact.called || contact.notes || contact.follow_up_date || contact.call_recording_drive_url) && (
+        <div className="bg-primary/5 border-b border-primary/10 px-6 py-3 shrink-0 flex flex-col gap-1.5">
+           <div className="flex items-center gap-2 text-sm font-semibold text-primary">
+              <Clock className="w-4 h-4" /> Previous History
+              {contact.call_date && <span className="text-xs font-normal text-muted-foreground ml-2">Last called: {new Date(contact.call_date).toLocaleString()}</span>}
+           </div>
+           
+           <div className="flex flex-wrap gap-4 text-sm mt-1">
+             {contact.call_outcome && (
+               <div className="flex items-center gap-1.5 bg-background border border-border px-2 py-1 rounded text-muted-foreground">
+                 <Phone className="w-3.5 h-3.5" /> Outcome: <span className="font-medium text-foreground capitalize">{contact.call_outcome.replace(/_/g, ' ')}</span>
+               </div>
+             )}
+             {contact.follow_up_date && (
+               <div className="flex items-center gap-1.5 bg-warning/10 border border-warning/30 px-2 py-1 rounded text-warning">
+                 <Bell className="w-3.5 h-3.5" /> Follow-up Due: <span className="font-medium">{new Date(contact.follow_up_date).toLocaleString()}</span>
+               </div>
+             )}
+             {contact.not_interested && (
+               <div className="flex items-center gap-1.5 bg-destructive/10 border border-destructive/30 px-2 py-1 rounded text-destructive">
+                 <AlertTriangle className="w-3.5 h-3.5" /> Marked as Not Interested
+               </div>
+             )}
+             {contact.call_recording_drive_url && (() => {
+               // Parse multi-recording format: "date|url;date|url" or legacy single URL
+               const entries = contact.call_recording_drive_url.includes('|')
+                 ? contact.call_recording_drive_url.split(';').map((entry, idx) => {
+                     const [date, url] = entry.split('|');
+                     return { date, url, idx: idx + 1 };
+                   })
+                 : [{ date: '', url: contact.call_recording_drive_url, idx: 1 }];
+               return entries.map(({ date, url, idx }) => (
+                 <a
+                   key={idx}
+                   href={url}
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   className="flex items-center gap-1.5 bg-primary/10 border border-primary/30 px-2 py-1 rounded text-primary hover:bg-primary/20 transition-colors"
+                 >
+                   <ExternalLink className="w-3.5 h-3.5" />
+                   🎙️ Recording {idx}{date ? ` — ${new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
+                 </a>
+               ));
+             })()}
+           </div>
+           
+           {contact.notes && (
+             <div className="mt-2 bg-background/50 border border-border/50 rounded p-2 text-sm whitespace-pre-wrap text-muted-foreground">
+               <span className="font-semibold text-foreground mr-1">Notes:</span>
+               {contact.notes}
+             </div>
+           )}
+        </div>
+      )}
+
       {/* Panels */}
       <div className="flex-1 flex min-h-0">
-        {/* Transcript */}
-        <div className="w-[65%] border-r border-border flex flex-col relative">
-          {callActive && (speechDetectedRef.current || isManualRecording) && (
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-              <span className="w-2 h-2 rounded-full bg-destructive rec-pulse" />
-              <span className="text-xs font-semibold text-destructive">REC</span>
+        {/* Call Script Panel (Left) */}
+        <div className="w-[70%] border-r border-border flex flex-col bg-[#f0f2f5] dark:bg-slate-900/50 min-w-0">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-background shrink-0">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Call Script</h3>
             </div>
-          )}
-          {!speechSupported && (
-            <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning">
-              Live transcription requires Chrome or Edge
-            </div>
-          )}
-          {!transcriptionEnabled && (
-            <div className="bg-warning/20 border-b border-warning/30 px-4 py-2 text-sm text-warning flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Transcription disabled — add an Agora API key in Settings to enable. Recording still works via the manual button.</span>
-            </div>
-          )}
-          <div ref={transcriptRef} className="flex-1 overflow-y-auto p-6 transcript-scroll">
-            {!transcript && !interimText ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <Mic className="w-10 h-10 mb-3 opacity-40" />
-                <p className="text-sm">Listening... Start speaking to see the transcript</p>
-                <p className="text-xs mt-1 opacity-60">Recording will start when speech is detected</p>
+            <span className="text-[10px] text-muted-foreground">Rich Text Edits sync to Settings</span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center">
+            {settings.googleDocEmbedUrl ? (
+              <div className="w-full max-w-[900px] h-full bg-white dark:bg-slate-950 shadow-sm border border-border/50 rounded-md overflow-hidden flex flex-col">
+                <iframe
+                  src={(() => {
+                    let url = settings.googleDocEmbedUrl;
+                    if (!url) return '';
+                    // Convert standard links to preview links for cleaner embedding
+                    if (url.includes('/edit')) url = url.split('/edit')[0] + '/preview';
+                    else if (url.includes('/view')) url = url.split('/view')[0] + '/preview';
+                    
+                    // Add minimal UI param if not already there
+                    const separator = url.includes('?') ? '&' : '?';
+                    if (!url.includes('rm=minimal')) url += `${separator}rm=minimal`;
+                    
+                    return url;
+                  })()}
+                  className="w-full h-full border-none"
+                  title="Call Script Document"
+                  allow="autoplay"
+                />
+              </div>
+            ) : callScript ? (
+              <div className="w-full max-w-[850px] bg-white dark:bg-slate-950 shadow-sm border border-border/50 min-h-full flex flex-col rounded-md overflow-hidden">
+                <RichTextEditor
+                  content={callScript}
+                  onChange={html => setCallScript(html)}
+                  onBlur={saveCallScript}
+                  className="border-none grow rounded-none shadow-none bg-transparent"
+                />
               </div>
             ) : (
-              <div className="whitespace-pre-wrap">
-                <span className="text-foreground">{transcript}</span>
-                {interimText && <span className="text-muted-foreground italic">{interimText}</span>}
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-6">
+                <FileText className="w-10 h-10 mb-3 opacity-40" />
+                <p className="text-sm font-medium">No call script configured</p>
+                <p className="text-xs mt-1 opacity-60">Paste your script in Settings → Call Script</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Suggestions */}
-        <div className="w-[35%] flex flex-col p-4 gap-3 overflow-y-auto">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">AI Suggestions</h3>
-          {(() => {
-            const settings = getSettings();
-            const hasKeys = settings.geminiApiKeys.length > 0 || !!settings.geminiApiKey;
-            if (!hasKeys) {
-              return (
-                <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-                  Add your Gemini API key in Settings to enable AI suggestions
-                </div>
-              );
-            }
-            return null;
-          })()}
-          {suggestionsError && (
-            <div className="glass-card p-4 text-center text-sm text-warning">{suggestionsError}</div>
-          )}
-          {!transcript.trim() && (
-            <div className="glass-card p-4 text-center text-sm text-muted-foreground">Suggestions paused — waiting for transcript</div>
-          )}
-          {transcript.trim() && suggestions.length === 0 && !suggestionsError && (
-            <div className="glass-card p-4 text-center text-sm text-muted-foreground">
-              <div className="w-6 h-6 border-2 border-primary/40 border-t-primary rounded-full animate-spin mx-auto mb-2" />
-              Generating suggestions...
-            </div>
-          )}
-          <AnimatePresence mode="popLayout">
-            {suggestions.map((card, idx) => (
-              <motion.div
-                key={`${card.type}-${card.title}-${idx}`}
-                initial={{ x: 20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -20, opacity: 0 }}
-                transition={{ duration: 0.3, delay: idx * 0.05 }}
-                className={`glass-card p-4 relative ${
-                  card.type === 'response' ? 'suggestion-response' : card.type === 'objection' ? 'suggestion-objection' : 'suggestion-insight'
-                }`}
-              >
-                <button onClick={() => dismissSuggestion(idx)} className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                    card.type === 'response' ? 'text-primary' : card.type === 'objection' ? 'text-warning' : 'text-purple'
-                  }`}>{card.type}</span>
-                </div>
-                <h4 className="font-semibold text-sm mb-1">{card.title}</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed">{card.body}</p>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+        {/* Live Notes Panel (Right) */}
+        <div className="w-[30%] flex flex-col min-w-[300px]">
+          <div className="flex items-center gap-2 px-4 py-2 bg-card/30 border-b border-border/50 shrink-0">
+            <StickyNote className="w-4 h-4 text-primary" />
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Notes</h3>
+            <span className="text-[10px] text-muted-foreground ml-auto whitespace-nowrap">Auto-saves to review</span>
+          </div>
+          <textarea
+            value={liveNotes}
+            onChange={e => setLiveNotes(e.target.value)}
+            placeholder="Type your notes here during the call..."
+            className="flex-1 p-4 bg-transparent resize-none focus:outline-none text-sm leading-relaxed font-sans text-foreground overflow-y-auto placeholder:text-muted-foreground/50"
+          />
         </div>
       </div>
 
@@ -591,7 +721,8 @@ export default function CallScreen() {
           contact={contact}
           transcript={transcriptAccRef.current}
           recordingBlob={recordingBlob}
-          duration={seconds}
+          duration={totalSeconds}
+          liveNotes={liveNotes}
           onDone={handlePostCallDone}
         />
       )}

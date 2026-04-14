@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Contact } from '@/types';
 import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
@@ -16,20 +16,32 @@ interface Props {
   transcript: string;
   recordingBlob: Blob | null;
   duration: number;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, keepRecording?: boolean, callRating?: number, callSuccess?: boolean) => void;
+  liveNotes?: string;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, uploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
 }
 
-export default function PostCallModal({ contact, transcript, recordingBlob, duration, onDone }: Props) {
-  const [notes, setNotes] = useState('');
-  const [actions, setActions] = useState<Set<string>>(new Set());
-  const [copied, setCopied] = useState(false);
+export default function PostCallModal({ contact, transcript, recordingBlob, duration, liveNotes, onDone }: Props) {
+  const [notes, setNotes] = useState(liveNotes || contact.notes || '');
+  const [actions, setActions] = useState<Set<string>>(new Set(['no_action']));
   const [followUpDate, setFollowUpDate] = useState<Date | undefined>();
   const [followUpTime, setFollowUpTime] = useState('09:00');
-  const [keepRecording, setKeepRecording] = useState(true);
+  const settings = getSettings();
+  const [saveLocally, setSaveLocally] = useState(() => settings.recordingSaveMode === 'local' || settings.recordingSaveMode === 'both' || true);
+  const [uploadToDrive, setUploadToDrive] = useState(false);
+  const [manualDriveOverride, setManualDriveOverride] = useState(false);
   const [callRating, setCallRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [callSuccess, setCallSuccess] = useState<boolean | null>(null);
-  const settings = getSettings();
+  
+  const isAutoSuccess = callSuccess === true || actions.has('follow_up') || actions.has('send_proposal') || actions.has('warm_lead');
+
+  useEffect(() => {
+    if (!manualDriveOverride && isAutoSuccess && settings.driveConnected) {
+      setUploadToDrive(true);
+    } else if (!manualDriveOverride && !isAutoSuccess) {
+      setUploadToDrive(false);
+    }
+  }, [isAutoSuccess, manualDriveOverride, settings.driveConnected]);
 
   const dateStr = new Date().toISOString().slice(0, 10);
   const title = `${dateStr} — ${contact.name}`;
@@ -37,34 +49,42 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const toggleAction = (action: string) => {
     setActions(prev => {
       const next = new Set(prev);
-      if (next.has(action)) next.delete(action); else next.add(action);
-      const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'not_interested', 'revert_uncalled'];
+      if (next.has(action)) {
+        next.delete(action);
+      } else {
+        next.add(action);
+        if (['no_answer', 'phone_not_working', 'revert_uncalled'].includes(action)) {
+          next.delete('no_action');
+        }
+        if (action === 'no_action') {
+          ['no_answer', 'phone_not_working', 'revert_uncalled'].forEach(a => next.delete(a));
+        }
+      }
+
+      const exclusiveOutcomes = ['no_answer', 'phone_not_working', 'revert_uncalled'];
       if (exclusiveOutcomes.includes(action) && next.has(action)) {
         exclusiveOutcomes.filter(a => a !== action).forEach(a => next.delete(a));
       }
       return next;
     });
-  };
 
-  const copyWorkflowTrigger = () => {
-    const text = `ANTI-GRAVITY TASK: Build website for ${contact.name}.\nGoogle Maps URL: ${contact.google_maps_url || 'N/A'}\nAddress: ${contact.address || 'N/A'}\nPhone: ${contact.phone}\nNotes from call: ${notes || 'None'}`;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast.success('Workflow trigger copied to clipboard');
+    // Auto-discard recording if user selects no_answer or phone_not_working
+    if ((action === 'no_answer' || action === 'phone_not_working') && !actions.has(action)) {
+      setSaveLocally(false);
+      setUploadToDrive(false);
+      setManualDriveOverride(true);
+    }
   };
 
   const getOutcome = (): string => {
     if (actions.has('no_answer')) return 'no_answer';
     if (actions.has('phone_not_working')) return 'phone_not_working';
-    if (actions.has('not_interested')) return 'not_interested';
     if (actions.has('warm_lead')) return 'interested';
-    if (actions.has('anti_gravity')) return 'interested';
     if (actions.has('send_proposal')) return 'interested';
     return 'completed';
   };
 
-  const handleDone = () => {
+  const handleDone = (direction: 'forward' | 'backward' = 'forward') => {
     let followUpISO = '';
     if (actions.has('follow_up') && followUpDate) {
       const [h, m] = followUpTime.split(':').map(Number);
@@ -72,7 +92,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), keepRecording, callRating, callSuccess ?? undefined);
+    onDone(notes, Array.from(actions), followUpISO, getOutcome(), saveLocally, uploadToDrive, callRating, callSuccess ?? undefined, direction);
   };
 
   return (
@@ -135,28 +155,50 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
 
         {/* Recording decision */}
         {recordingBlob && (
-          <div className="glass-card p-3 mb-4">
-            <p className="text-sm font-medium mb-2">Recording</p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant={keepRecording ? 'default' : 'outline'}
-                onClick={() => setKeepRecording(true)}
-                className="gap-1.5 text-xs flex-1"
-              >
-                <Upload className="w-3 h-3" />
-                {settings.recordingSaveMode === 'drive' ? 'Upload to Drive' : 'Save Recording'}
-              </Button>
-              <Button
-                size="sm"
-                variant={!keepRecording ? 'destructive' : 'outline'}
-                onClick={() => setKeepRecording(false)}
-                className="gap-1.5 text-xs flex-1"
-              >
-                <Trash2 className="w-3 h-3" />
-                Discard
-              </Button>
+          <div className="glass-card p-4 mb-4">
+            <p className="text-sm font-medium mb-3">Recording Options</p>
+            <div className="flex flex-col gap-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                 <input 
+                   type="checkbox" 
+                   checked={saveLocally} 
+                   onChange={e => setSaveLocally(e.target.checked)} 
+                   className="accent-primary w-4 h-4" 
+                 />
+                 <span className="text-sm font-medium">Download Locally</span>
+              </label>
+              
+              {settings.driveConnected ? (
+                <label className="flex items-center gap-3 cursor-pointer">
+                   <input 
+                     type="checkbox" 
+                     checked={uploadToDrive} 
+                     onChange={e => {
+                       setManualDriveOverride(true);
+                       setUploadToDrive(e.target.checked);
+                     }} 
+                     className="accent-primary w-4 h-4" 
+                   />
+                   <span className="text-sm font-medium flex items-center gap-2">
+                     Upload to Google Drive
+                     {isAutoSuccess && !manualDriveOverride && (
+                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">Auto-Selected (Success)</span>
+                     )}
+                   </span>
+                </label>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground ml-7">
+                  <Upload className="w-4 h-4 opacity-60" />
+                  <span>Google Drive not connected (Enable in Settings)</span>
+                </div>
+              )}
             </div>
+            
+            {(saveLocally || uploadToDrive) ? null : (
+              <p className="text-xs text-destructive mt-3 pt-3 border-t border-border flex items-center gap-1.5 opacity-90">
+                <Trash2 className="w-3.5 h-3.5" /> Recording will be discarded
+              </p>
+            )}
           </div>
         )}
 
@@ -186,7 +228,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <input type="checkbox" checked={actions.has('phone_not_working')} onChange={() => toggleAction('phone_not_working')} className="accent-primary w-4 h-4" />
             <PhoneOff className="w-4 h-4 text-destructive" />
             <span className="text-sm font-medium">Phone Number Not Working</span>
-            <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
+            <span className="text-xs text-muted-foreground ml-auto">Hidden from queue forever</span>
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
@@ -200,28 +242,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <p className="text-sm font-medium mb-3">Post-Call Actions</p>
           </div>
 
-          <label className="flex items-start gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('anti_gravity')} onChange={() => toggleAction('anti_gravity')} className="mt-0.5 accent-primary w-4 h-4" />
-            <div className="flex-1">
-              <span className="text-sm font-medium">Trigger Anti-Gravity website build</span>
-              {actions.has('anti_gravity') && (
-                <div className="mt-2 space-y-2 animate-fade-in">
-                  <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
-                    {contact.google_maps_url || 'No Google Maps URL available'}
-                  </div>
-                  <Button size="sm" variant="outline" onClick={copyWorkflowTrigger} className="gap-1.5 text-xs h-8">
-                    {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
-                    {copied ? 'Copied!' : 'Copy Workflow Trigger'}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </label>
 
-          <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-            <input type="checkbox" checked={actions.has('not_interested')} onChange={() => toggleAction('not_interested')} className="accent-primary w-4 h-4" />
-            <span className="text-sm font-medium">Mark as Not Interested</span>
-          </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('remove_from_queue')} onChange={() => toggleAction('remove_from_queue')} className="accent-primary w-4 h-4" />
@@ -326,9 +347,15 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
           </label>
         </div>
 
-        <Button onClick={handleDone} className="w-full h-11 font-semibold rounded-lg">
-          Done
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => handleDone('backward')} variant="outline" className="flex-1 h-11 font-semibold rounded-lg">
+            <Undo2 className="w-4 h-4 mr-2" />
+            Done & Prev
+          </Button>
+          <Button onClick={() => handleDone('forward')} className="flex-[2] h-11 font-semibold rounded-lg">
+            Done & Next
+          </Button>
+        </div>
       </div>
     </div>
   );

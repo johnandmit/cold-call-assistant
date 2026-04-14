@@ -3,9 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from '@/types';
 import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
-import { isContactSuppressed, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
+import { isContactSuppressed, getSuppressedIds, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square, ExternalLink, Headphones, PhoneOff, VolumeX } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -48,6 +48,8 @@ export default function CallQueue() {
   const handleEndSession = () => {
     endActiveSession();
     setActiveSessionState(null);
+    // Refresh to re-show previously suppressed contacts
+    refreshContacts();
   };
 
   // Load persisted filters from settings
@@ -94,11 +96,28 @@ export default function CallQueue() {
     return contacts.filter(c => c.follow_up_date && isFollowUpDue(c.follow_up_date));
   }, [contacts]);
 
+  const suppressedIds = useMemo(() => getSuppressedIds(), [contacts]);
+
   const sortedContacts = useMemo(() => {
-    let filtered = contacts.filter(c => !c.not_interested && !c.hidden_from_queue && !isContactSuppressed(c.id) && !skippedIds.has(c.id));
+    // Never show not_interested or permanently hidden contacts
+    let filtered = contacts.filter(c => !c.not_interested && !c.hidden_from_queue);
+
+    // When not searching, hide suppressed and skipped contacts from the main queue
+    // When searching, keep them visible so the user can find them
+    const isSearching = !!search;
+    if (!isSearching) {
+      filtered = filtered.filter(c => !isContactSuppressed(c.id) && !skippedIds.has(c.id));
+    }
+
     if (search) {
       const s = search.toLowerCase();
-      filtered = filtered.filter(c => c.name.toLowerCase().includes(s) || c.phone.includes(s));
+      const searchClean = s.replace(/[\s\-\(\)\.]/g, '');
+      filtered = filtered.filter(c => {
+        if (c.name.toLowerCase().includes(s)) return true;
+        const phoneClean = c.phone.replace(/[\s\-\(\)\.]/g, '');
+        if (phoneClean.includes(searchClean)) return true;
+        return false;
+      });
     }
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
@@ -113,6 +132,10 @@ export default function CallQueue() {
     if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
     return [...filtered].sort((a, b) => {
+      // Suppressed/skipped contacts sort to the very bottom
+      const aSuppressed = isContactSuppressed(a.id) || skippedIds.has(a.id);
+      const bSuppressed = isContactSuppressed(b.id) || skippedIds.has(b.id);
+      if (aSuppressed !== bSuppressed) return aSuppressed ? 1 : -1;
       // Follow-ups first
       const aFollowUp = a.follow_up_date && isFollowUpDue(a.follow_up_date);
       const bFollowUp = b.follow_up_date && isFollowUpDue(b.follow_up_date);
@@ -139,7 +162,7 @@ export default function CallQueue() {
       if (aClosed !== bClosed) return aClosed ? 1 : -1;
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
-  }, [contacts, search, showOpenOnly, filters, skippedIds]);
+  }, [contacts, search, showOpenOnly, filters, skippedIds, suppressedIds]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
@@ -349,6 +372,9 @@ export default function CallQueue() {
           const isFollowUp = contact.follow_up_date && isFollowUpDue(contact.follow_up_date);
           const hasHours = !!contact.opening_hours;
           const isHoursExpanded = expandedHoursId === contact.id;
+          const isSuppressedForSession = isContactSuppressed(contact.id);
+          const isSkippedForDay = skippedIds.has(contact.id);
+          const isDimmed = (contact.called && !isFollowUp) || isSuppressedForSession || isSkippedForDay;
 
           return (
             <div key={contact.id}>
@@ -357,7 +383,7 @@ export default function CallQueue() {
                 onClick={() => setSelectedId(contact.id)}
                 className={`w-full flex items-center gap-4 px-4 py-3 rounded-lg text-left transition-all duration-200 cursor-pointer ${
                   contact.id === heroContact?.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-accent'
-                } ${contact.called && !isFollowUp ? 'opacity-50' : ''}`}
+                } ${isDimmed ? 'opacity-40' : ''}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -368,8 +394,18 @@ export default function CallQueue() {
                       </span>
                     )}
                     {contact.called && !isFollowUp && <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Called</span>}
-                    {contact.call_outcome === 'no_answer' && <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-medium">No Answer</span>}
-                    {contact.call_outcome === 'phone_not_working' && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium">Bad #</span>}
+                    {isSuppressedForSession && (
+                      <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                        <VolumeX className="w-2.5 h-2.5" /> No Answer
+                      </span>
+                    )}
+                    {isSkippedForDay && !isSuppressedForSession && (
+                      <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                        <SkipForward className="w-2.5 h-2.5" /> Skipped
+                      </span>
+                    )}
+                    {contact.call_outcome === 'no_answer' && !isSuppressedForSession && <span className="text-[10px] bg-warning/20 text-warning px-1.5 py-0.5 rounded font-medium">No Answer</span>}
+                    {contact.call_outcome === 'phone_not_working' && <span className="text-[10px] bg-destructive/20 text-destructive px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5"><PhoneOff className="w-2.5 h-2.5" /> Bad #</span>}
                     {!contact.called && isOpen && (
                       <span className="text-[10px] bg-success/20 text-success px-1.5 py-0.5 rounded font-medium">Open Now</span>
                     )}
@@ -479,6 +515,17 @@ export default function CallQueue() {
             <div>
               <label className="text-xs font-medium text-muted-foreground">Notes</label>
               <Input value={editingContact.notes} onChange={e => setEditingContact({ ...editingContact, notes: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">Audio Recording URL <Headphones className="w-3 h-3" /></label>
+              <div className="flex gap-2">
+                <Input value={editingContact.call_recording_drive_url || ''} onChange={e => setEditingContact({ ...editingContact, call_recording_drive_url: e.target.value })} placeholder="https://drive.google.com/..." className="bg-input border-border flex-1" />
+                {editingContact.call_recording_drive_url && (
+                  <a href={editingContact.call_recording_drive_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center w-9 h-9 rounded-md border border-border hover:bg-accent transition-colors text-primary shrink-0">
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </div>
             </div>
             <div className="flex gap-2 pt-2">
               <Button onClick={saveInlineEdit} className="flex-1">Save</Button>

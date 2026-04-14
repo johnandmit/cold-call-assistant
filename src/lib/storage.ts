@@ -188,7 +188,17 @@ export function addCall(call: Call, campaignId?: string) {
 export function getSettings(): Settings {
   try {
     const data = localStorage.getItem(SETTINGS_KEY);
-    return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
+    const parsed = data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
+    
+    // Drive is now connected by default via hardcoded Apps Script URL
+    parsed.driveConnected = true;
+
+    // Force default drive folder if none is set
+    if (!parsed.driveFolderId) {
+      parsed.driveFolderId = '1XBCndWW87aMn3awjocvE8tOtdyGhjw9X';
+    }
+    
+    return parsed;
   } catch { return DEFAULT_SETTINGS; }
 }
 

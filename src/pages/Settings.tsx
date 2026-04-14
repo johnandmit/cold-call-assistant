@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { ExternalLink, Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic } from 'lucide-react';
+import { Save, Key, FileText, Clock, HardDrive, Plus, X, Trash2, Mic, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import RichTextEditor from '@/components/RichTextEditor';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const TIMES = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`);
@@ -116,15 +117,43 @@ export default function SettingsPage() {
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <FileText className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Sales Script / AI Context</h2>
+            <h2 className="font-semibold">Call Script</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">This text is sent to the AI with every suggestion request.</p>
-          <Textarea
-            value={settings.salesScript}
-            onChange={e => update({ salesScript: e.target.value })}
-            placeholder="Enter your sales script, product info, and talking points..."
-            className="min-h-[150px] bg-input border-border font-mono text-xs"
-          />
+          <p className="text-xs text-muted-foreground mb-3">
+            Configure your call script here. You can use the internal Rich Text Editor below, or embed an external Google Doc.
+          </p>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                External Google Doc Embed (Optional)
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={settings.googleDocEmbedUrl || ''}
+                  onChange={e => update({ googleDocEmbedUrl: e.target.value })}
+                  placeholder="https://docs.google.com/document/d/..."
+                  className="bg-input border-border"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Paste your Google Doc link here. We'll automatically convert it to a clean embed view. 
+                If this is set, it will override the editor below.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Internal Editor
+              </label>
+              <RichTextEditor
+                content={settings.salesScript}
+                onBlur={html => update({ salesScript: html })}
+                placeholder="Enter your call script, talking points, objection handling, product info..."
+                className="min-h-[400px] bg-input border-border"
+              />
+            </div>
+          </div>
         </section>
 
         {/* Transcription API Key */}
@@ -297,45 +326,23 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Google Drive */}
+        {/* Google Drive Status */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <HardDrive className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold">Google Drive</h2>
+            <h2 className="font-semibold">Google Drive Automation</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">Connect Google Drive to automatically upload call recordings.</p>
-          {settings.driveConnected ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-success">✓ Connected: {settings.driveEmail || 'Account linked'}</span>
-                <Button variant="outline" size="sm" onClick={disconnectDrive}>
-                  Disconnect
-                </Button>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Drive Folder ID (optional)</label>
-                <Input
-                  value={settings.driveFolderId || ''}
-                  onChange={e => update({ driveFolderId: e.target.value })}
-                  placeholder="Leave empty to upload to root"
-                  className="bg-input border-border text-sm"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Find the folder ID in the Google Drive URL after /folders/</p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <Button onClick={connectGoogleDrive} className="gap-2">
-                <HardDrive className="w-4 h-4" />
-                Connect Google Drive
-              </Button>
+          <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-green-400 flex items-center gap-1.5">
+                <Check className="w-4 h-4" />
+                Google Drive Connected
+              </span>
               <p className="text-xs text-muted-foreground">
-                {!GOOGLE_CLIENT_ID
-                  ? 'To enable Google Drive, add your Google OAuth Client ID in the app configuration. You can create one at the Google Cloud Console → APIs & Services → Credentials.'
-                  : 'Click to authorize access to upload recordings to your Google Drive.'}
+                Recording uploads are active using the default Apps Script integration.
               </p>
             </div>
-          )}
+          </div>
         </section>
       </div>
     </div>

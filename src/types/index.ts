@@ -56,6 +56,9 @@ export interface Settings {
   queueFilters: QueueFilterState;
   confirmBeforeDelete: boolean;
   activeCampaignId: string;
+  serviceAccountJson: string;
+  driveWebhookUrl: string;
+  googleDocEmbedUrl?: string;
 }
 
 export interface QueueFilterState {
@@ -93,7 +96,7 @@ export const TARGET_FIELDS = [
   'rating', 'review_count', 'conversion_confidence_score',
   'outreach_tier', 'average_urgency', 'opening_hours', 'called', 'category',
   'notes', 'call_outcome', 'follow_up_date', 'call_date', 'not_interested',
-  'hidden_from_queue',
+  'hidden_from_queue', 'call_recording_drive_url',
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];
@@ -120,12 +123,15 @@ export const DEFAULT_SETTINGS: Settings = {
   driveConnected: false,
   driveToken: '',
   driveEmail: '',
-  driveFolderId: '',
+  driveFolderId: '1XBCndWW87aMn3awjocvE8tOtdyGhjw9X',
   suggestionRefreshRate: 10,
-  recordingSaveMode: 'local',
+  recordingSaveMode: 'both',
   queueFilters: DEFAULT_QUEUE_FILTERS,
   confirmBeforeDelete: false,
   activeCampaignId: '',
+  serviceAccountJson: '',
+  driveWebhookUrl: '',
+  googleDocEmbedUrl: '',
 };
 
 // Campaigns
