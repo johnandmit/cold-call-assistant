@@ -306,144 +306,154 @@ export default function CallScreen() {
       }
     }
   }, [queueIds, currentQueueIndex, navigate]);
-
   const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
-    if (contact) {
-      const session = getOrCreateActiveSession();
-      const callId = v4();
-      const now = new Date().toISOString();
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
+    // 1. Immediately close the modal to prevent it from sticking
+    setShowPostCall(false);
 
-      const isRevert = actions.includes('revert_uncalled');
-      const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
-      const didPickUp = !isRevert; // Mark as called even if suppressed (e.g. no answer), so they don't get recalled
-      const isRemoved = actions.includes('remove_from_queue');
+    try {
+      if (contact) {
+        const session = getOrCreateActiveSession();
+        const callId = v4();
+        const now = new Date().toISOString();
+        const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
 
-      if (!isRevert) {
-        addCall({
-          id: callId,
-          contact_id: contact.id,
-          contact_name: contact.name,
-          started_at: new Date(startTimeRef.current).toISOString(),
-          ended_at: now,
-          duration_seconds: seconds,
-          transcript: transcriptAccRef.current,
-          recording_filename: (saveLocally || shouldUploadToDrive) ? filename : '',
-          recording_drive_url: '',
-          notes,
-          actions_taken: actions,
-          call_rating: callRating || 0,
-          call_success: callSuccess,
-          session_id: session.id,
-          category: contact.category || '',
+        const isRevert = actions.includes('revert_uncalled');
+        const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
+        const didPickUp = !isRevert;
+        const isRemoved = actions.includes('remove_from_queue');
+
+        if (!isRevert) {
+          addCall({
+            id: callId,
+            contact_id: contact.id,
+            contact_name: contact.name,
+            started_at: new Date(startTimeRef.current).toISOString(),
+            ended_at: now,
+            duration_seconds: seconds,
+            transcript: transcriptAccRef.current,
+            recording_filename: (saveLocally || shouldUploadToDrive) ? filename : '',
+            recording_drive_url: '',
+            notes,
+            actions_taken: actions,
+            call_rating: callRating || 0,
+            call_success: callSuccess,
+            session_id: session.id,
+            category: contact.category || '',
+          });
+
+          recordCallOutcome(outcome || 'completed');
+        }
+
+        updateContact(contact.id, {
+          called: didPickUp,
+          call_date: didPickUp ? now : (contact.call_date || ''),
+          notes: notes || contact.notes,
+          not_interested: contact.not_interested,
+          follow_up_date: followUpDate || '',
+          call_outcome: outcome || '',
+          hidden_from_queue: isRemoved || contact.hidden_from_queue,
         });
 
-        recordCallOutcome(outcome || 'completed');
-      }
-
-      updateContact(contact.id, {
-        called: didPickUp,
-        call_date: didPickUp ? now : (contact.call_date || ''),
-        notes: notes || contact.notes,
-        not_interested: contact.not_interested,
-        follow_up_date: followUpDate || '',
-        call_outcome: outcome || '',
-        hidden_from_queue: isRemoved || contact.hidden_from_queue,
-      });
-
-      if (isSuppressed) {
-        suppressContact(contact.id);
-      }
-    }
-
-    // Handle recording save
-    const settings = getSettings();
-    if ((saveLocally || shouldUploadToDrive) && recordingBlob && contact) {
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
-      
-      if (saveLocally) {
-        const url = URL.createObjectURL(recordingBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-      
-      if (shouldUploadToDrive && settings.driveConnected) {
-        toast.promise(uploadToDrive(recordingBlob, filename), {
-          loading: 'Uploading recording to Google Drive...',
-          success: (driveUrl) => {
-            updateContact(contact.id, { call_recording_drive_url: driveUrl });
-            return 'Recording saved to Google Drive';
-          },
-          error: (err) => {
-            console.error('Drive upload failed:', err);
-            // Fallback: download locally if drive fails and we haven't already
-            if (!saveLocally) {
-              const url = URL.createObjectURL(recordingBlob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = filename;
-              a.click();
-              URL.revokeObjectURL(url);
-              return 'Drive upload failed. Recording downloaded locally.';
-            }
-            return `Drive upload failed: ${err.message || 'Unknown error'}`;
-          }
-        });
-      }
-    }
-
-    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-
-    // Check for any due follow-ups before auto-advancing
-    const dueFollowUps = allContacts.filter(c =>
-      c.follow_up_date &&
-      new Date(c.follow_up_date) <= now &&
-      c.id !== contact?.id &&
-      !c.not_interested
-    );
-
-    if (dueFollowUps.length > 0) {
-      const dueFollowUp = dueFollowUps[0];
-      const count = dueFollowUps.length;
-      
-      toast.info(count > 1 ? `${count} Follow-ups due!` : `Follow-up due: ${dueFollowUp.name}`, {
-        description: count > 1 ? `Routing to ${dueFollowUp.name} first...` : 'Routing to follow-up contact...',
-        duration: 4000,
-      });
-      navigate('/', { replace: true });
-      setTimeout(() => {
-        navigate('/call', {
-          state: { contact: dueFollowUp, queueIds: queueIds || [dueFollowUp.id], queueIndex: 0 },
-          replace: true,
-        });
-      }, 50);
-      return;
-    }
-
-    // Auto-advance or recede in queue
-    if (queueIds && currentQueueIndex !== undefined) {
-      const targetIndex = direction === 'forward' ? currentQueueIndex + 1 : currentQueueIndex - 1;
-      if (targetIndex >= 0 && targetIndex < queueIds.length) {
-        const targetContact = allContacts.find(c => c.id === queueIds[targetIndex]);
-        if (targetContact) {
-          // Navigate away briefly then to the target call to force remount
-          navigate('/', { replace: true });
-          setTimeout(() => {
-            navigate('/call', {
-              state: { contact: targetContact, queueIds, queueIndex: targetIndex },
-              replace: true,
-            });
-          }, 50);
-          return;
+        if (isSuppressed) {
+          suppressContact(contact.id);
         }
       }
-    }
 
-    navigate('/');
+      // Handle recording save (non-blocking)
+      const settings = getSettings();
+      if ((saveLocally || shouldUploadToDrive) && recordingBlob && contact) {
+        const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
+        
+        if (saveLocally) {
+          const url = URL.createObjectURL(recordingBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        
+        if (shouldUploadToDrive && settings.driveConnected) {
+          toast.promise(uploadToDrive(recordingBlob, filename), {
+            loading: 'Uploading recording to Google Drive...',
+            success: (driveUrl) => {
+              updateContact(contact.id, { call_recording_drive_url: driveUrl });
+              return 'Recording saved to Google Drive';
+            },
+            error: (err) => {
+              console.error('Drive upload failed:', err);
+              // Fallback: download locally if drive fails and we haven't already
+              if (!saveLocally) {
+                const url = URL.createObjectURL(recordingBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+                return 'Drive upload failed. Recording downloaded locally.';
+              }
+              return `Drive upload failed: ${err.message || 'Unknown error'}`;
+            }
+          });
+        }
+      }
+
+      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+
+      // Transition to next lead
+      const allContacts = getContacts();
+      const now = new Date();
+      const dueFollowUps = allContacts.filter(c =>
+        c.follow_up_date &&
+        new Date(c.follow_up_date) <= now &&
+        c.id !== contact?.id &&
+        !c.not_interested
+      );
+
+      if (dueFollowUps.length > 0) {
+        const dueFollowUp = dueFollowUps[0];
+        const count = dueFollowUps.length;
+        
+        toast.info(count > 1 ? `${count} Follow-ups due!` : `Follow-up due: ${dueFollowUp.name}`, {
+          description: count > 1 ? `Routing to ${dueFollowUp.name} first...` : 'Routing to follow-up contact...',
+          duration: 4000,
+        });
+
+        navigate('/', { replace: true });
+        setTimeout(() => {
+          navigate('/call', {
+            state: { contact: dueFollowUp, queueIds: queueIds || [dueFollowUp.id], queueIndex: 0 },
+            replace: true,
+          });
+        }, 50);
+        return;
+      }
+
+      if (queueIds && currentQueueIndex !== undefined) {
+        const targetIndex = direction === 'forward' ? currentQueueIndex + 1 : currentQueueIndex - 1;
+        if (targetIndex >= 0 && targetIndex < queueIds.length) {
+          const targetContact = allContacts.find(c => c.id === queueIds[targetIndex]);
+          if (targetContact) {
+            navigate('/', { replace: true });
+            setTimeout(() => {
+              navigate('/call', {
+                state: { contact: targetContact, queueIds, queueIndex: targetIndex },
+                replace: true,
+              });
+            }, 50);
+            return;
+          }
+        }
+      }
+
+      navigate('/');
+    } catch (err) {
+      console.error('Error in post-call transition:', err);
+      toast.error('Error saving call. Returning to queue.');
+      navigate('/');
+    }
   };
+
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 

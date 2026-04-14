@@ -22,17 +22,17 @@ export async function uploadToDrive(blob: Blob, filename: string): Promise<strin
     throw new Error('Google Drive webhook URL not configured. Deploy the Apps Script and paste the URL in Settings.');
   }
 
-  // Convert blob to base64
-  const arrayBuffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
-  let binary = '';
-  // Process in chunks to avoid call stack overflow on large files
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  const base64 = btoa(binary);
+  // Convert blob to base64 using FileReader (more robust for larger files)
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64Data = result.split(',')[1];
+      resolve(base64Data);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 
   const payload = {
     filename,
@@ -40,22 +40,33 @@ export async function uploadToDrive(blob: Blob, filename: string): Promise<strin
     mimeType: blob.type || 'audio/wav',
   };
 
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    redirect: 'follow', // Apps Script redirects on POST
-  });
+  // We use text/plain to avoid CORS preflight (OPTIONS request).
+  // Google Apps Script doesn't handle OPTIONS well but will happily parse the JSON body 
+  // from our text/plain POST request.
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+    });
 
-  if (!response.ok) {
-    throw new Error(`Drive upload failed: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Server-side error');
+    }
+
+    return data.url || `https://drive.google.com/file/d/${data.fileId}/view`;
+  } catch (err: any) {
+    console.error('Fetch error during Drive upload:', err);
+    if (err.message === 'Failed to fetch') {
+      throw new Error('Connection failed. This is usually a Google script permission or CORS issue. Ensure the script is deployed to "Anyone".');
+    }
+    throw err;
   }
-
-  const data = await response.json();
-
-  if (!data.success) {
-    throw new Error(`Drive upload failed: ${data.error || 'Unknown error'}`);
-  }
-
-  return data.url || `https://drive.google.com/file/d/${data.fileId}/view`;
 }
