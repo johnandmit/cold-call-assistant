@@ -681,12 +681,12 @@ export default function CallScreen() {
                 />
               </div>
             ) : callScript ? (
-              <div className="w-full max-w-[850px] bg-white dark:bg-slate-950 shadow-sm border border-border/50 min-h-full flex flex-col rounded-md overflow-hidden">
+              <div className="w-full max-w-[850px] bg-white dark:bg-slate-950 shadow-sm border border-border/50 min-h-full flex flex-col rounded-md">
                 <RichTextEditor
                   content={callScript}
                   onChange={html => setCallScript(html)}
                   onBlur={saveCallScript}
-                  className="border-none grow rounded-none shadow-none bg-transparent"
+                  className="border-none grow rounded-none shadow-none bg-transparent h-fit"
                 />
               </div>
             ) : (
