@@ -27,6 +27,7 @@ export default function CallScreen() {
   const [interimText, setInterimText] = useState('');
   const [callActive, setCallActive] = useState(true);
   const [seconds, setSeconds] = useState(0);
+  const [totalSeconds, setTotalSeconds] = useState(0);
   const [suggestions, setSuggestions] = useState<SuggestionCardType[]>([]);
   const [suggestionsError, setSuggestionsError] = useState('');
   const [showPostCall, setShowPostCall] = useState(false);
@@ -52,7 +53,10 @@ export default function CallScreen() {
   // Timer
   useEffect(() => {
     if (!callActive) return;
-    const id = setInterval(() => setSeconds(s => s + 1), 1000);
+    const id = setInterval(() => {
+      setSeconds(s => s + 1);
+      setTotalSeconds(s => s + 1);
+    }, 1000);
     return () => clearInterval(id);
   }, [callActive]);
 
@@ -224,6 +228,7 @@ export default function CallScreen() {
         startRecording();
       }, 100);
     }
+    setSeconds(0);
     toast.success('Recording cleared — starting fresh');
   }, [startRecording]);
 
@@ -348,7 +353,7 @@ export default function CallScreen() {
             contact_name: contact.name,
             started_at: new Date(startTimeRef.current).toISOString(),
             ended_at: now,
-            duration_seconds: seconds,
+            duration_seconds: totalSeconds,
             transcript: transcriptAccRef.current,
             recording_filename: (saveLocally || shouldUploadToDrive) ? filename : '',
             recording_drive_url: '',
@@ -549,7 +554,10 @@ export default function CallScreen() {
               <span className="text-xs font-semibold text-destructive">REC</span>
             </div>
           )}
-          <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+          <div className="flex flex-col items-end leading-tight">
+            <span className="font-mono text-lg tabular-nums">{formatTime(seconds)}</span>
+            <span className="font-mono text-[10px] text-muted-foreground tabular-nums">Total: {formatTime(totalSeconds)}</span>
+          </div>
           {currentQueueIndex !== undefined && currentQueueIndex > 0 && (
             <Button onClick={goToPreviousLead} variant="outline" size="sm" className="gap-1.5 text-xs h-9">
               <SkipBack className="w-3.5 h-3.5" />
@@ -774,7 +782,7 @@ export default function CallScreen() {
           contact={contact}
           transcript={transcriptAccRef.current}
           recordingBlob={recordingBlob}
-          duration={seconds}
+          duration={totalSeconds}
           liveNotes={liveNotes}
           onDone={handlePostCallDone}
         />
