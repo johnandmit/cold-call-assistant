@@ -163,7 +163,7 @@ export default function RichTextEditor({ content, onChange, onBlur, className, p
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose-base dark:prose-invert max-w-none focus:outline-none min-h-[150px]',
+        class: 'prose prose-sm sm:prose-base dark:prose-invert max-w-none focus:outline-none min-h-[200px] h-full',
       },
     },
   });
@@ -175,10 +175,22 @@ export default function RichTextEditor({ content, onChange, onBlur, className, p
     }
   };
 
+  if (!editor) {
+    return (
+      <div className={`flex flex-col border border-input rounded-md bg-background animate-pulse ${className}`}>
+        <div className="h-10 border-b border-border bg-muted/20" />
+        <div className="p-4 space-y-3">
+          <div className="h-4 bg-muted/20 rounded w-3/4" />
+          <div className="h-4 bg-muted/20 rounded w-1/2" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex flex-col border border-input rounded-md bg-background ${className}`} onBlur={handleBlur}>
       <MenuBar editor={editor} />
-      <div className="p-3">
+      <div className="flex-1 overflow-y-auto min-h-0 p-3">
         <EditorContent editor={editor} />
       </div>
     </div>
