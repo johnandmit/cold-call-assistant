@@ -312,7 +312,7 @@ export default function CallScreen() {
       const session = getOrCreateActiveSession();
       const callId = v4();
       const now = new Date().toISOString();
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
+      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
 
       const isRevert = actions.includes('revert_uncalled');
       const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
@@ -359,7 +359,7 @@ export default function CallScreen() {
     // Handle recording save
     const settings = getSettings();
     if ((saveLocally || shouldUploadToDrive) && recordingBlob && contact) {
-      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.mp3`;
+      const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
       
       if (saveLocally) {
         const url = URL.createObjectURL(recordingBlob);
