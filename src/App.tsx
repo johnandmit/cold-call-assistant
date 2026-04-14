@@ -17,7 +17,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Sonner position="top-right" closeButton richColors />
+      <Sonner position="bottom-right" closeButton richColors />
       <HashRouter>
         <Routes>
           <Route element={<Layout />}>
