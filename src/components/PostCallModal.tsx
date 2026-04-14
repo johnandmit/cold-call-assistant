@@ -227,7 +227,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <input type="checkbox" checked={actions.has('phone_not_working')} onChange={() => toggleAction('phone_not_working')} className="accent-primary w-4 h-4" />
             <PhoneOff className="w-4 h-4 text-destructive" />
             <span className="text-sm font-medium">Phone Number Not Working</span>
-            <span className="text-xs text-muted-foreground ml-auto">Suppressed for session</span>
+            <span className="text-xs text-muted-foreground ml-auto">Hidden from queue forever</span>
           </label>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">

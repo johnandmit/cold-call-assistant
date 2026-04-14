@@ -351,10 +351,11 @@ export default function CallScreen() {
           not_interested: contact.not_interested,
           follow_up_date: followUpDate || '',
           call_outcome: outcome || '',
-          hidden_from_queue: isRemoved || contact.hidden_from_queue,
+          hidden_from_queue: isRemoved || outcome === 'phone_not_working' || contact.hidden_from_queue,
         });
 
-        if (isSuppressed) {
+        // Only session-suppress 'no answer' — phone_not_working is hidden forever above
+        if (outcome === 'no_answer') {
           suppressContact(contact.id);
         }
       }

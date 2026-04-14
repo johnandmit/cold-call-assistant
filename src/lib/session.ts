@@ -25,6 +25,10 @@ export function suppressContact(id: string) {
   sessionStorage.setItem(SUPPRESSED_KEY, JSON.stringify([...set]));
 }
 
+export function clearSuppressed() {
+  sessionStorage.removeItem(SUPPRESSED_KEY);
+}
+
 export function isContactSuppressed(id: string): boolean {
   return getSuppressedIds().has(id);
 }
@@ -118,6 +122,8 @@ export function endActiveSession(campaignId?: string) {
     saveSessions(sessions, campaignId);
   }
   localStorage.removeItem(ACTIVE_SESSION_KEY);
+  // Clear session-level suppressions so 'no answer' contacts reappear
+  clearSuppressed();
 }
 
 export function recordCallOutcome(outcome: string, campaignId?: string) {
