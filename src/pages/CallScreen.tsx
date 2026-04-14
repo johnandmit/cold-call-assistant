@@ -371,11 +371,13 @@ export default function CallScreen() {
       }
       
       if (shouldUploadToDrive && settings.driveConnected) {
-        uploadToDrive(recordingBlob, filename)
-          .then(driveUrl => {
+        toast.promise(uploadToDrive(recordingBlob, filename), {
+          loading: 'Uploading recording to Google Drive...',
+          success: (driveUrl) => {
             updateContact(contact.id, { call_recording_drive_url: driveUrl });
-          })
-          .catch(err => {
+            return 'Recording saved to Google Drive';
+          },
+          error: (err) => {
             console.error('Drive upload failed:', err);
             // Fallback: download locally if drive fails and we haven't already
             if (!saveLocally) {
@@ -385,8 +387,11 @@ export default function CallScreen() {
               a.download = filename;
               a.click();
               URL.revokeObjectURL(url);
+              return 'Drive upload failed. Recording downloaded locally.';
             }
-          });
+            return `Drive upload failed: ${err.message || 'Unknown error'}`;
+          }
+        });
       }
     }
 

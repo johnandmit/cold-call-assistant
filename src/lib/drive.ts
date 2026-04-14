@@ -1,111 +1,61 @@
 import { getSettings } from '@/lib/storage';
-import { SignJWT, importPKCS8 } from 'jose';
 
-// Cache the token to prevent requesting a new one on every upload within the hour
-let cachedSaToken = '';
-let cachedSaTokenExpiry = 0;
+/**
+ * Default Apps Script Web App URL.
+ * Set this after deploying the Google Apps Script as a Web App.
+ * The URL looks like: https://script.google.com/macros/s/XXXXXXXXX/exec
+ */
+const DEFAULT_APPS_SCRIPT_URL = '';
 
-async function getServiceAccountToken(serviceAccountStr: string): Promise<string> {
-  let credentials;
-  try {
-    credentials = JSON.parse(serviceAccountStr);
-  } catch (e) {
-    throw new Error('Invalid Service Account JSON');
+/**
+ * Upload an audio blob to Google Drive via a Google Apps Script web app.
+ * 
+ * This avoids all OAuth complexity — the Apps Script runs as YOUR Google account
+ * and has full permission to write to your Drive. The recording is sent as base64
+ * in a POST request to the deployed web app URL.
+ */
+export async function uploadToDrive(blob: Blob, filename: string): Promise<string> {
+  const settings = getSettings();
+  const webhookUrl = settings.driveWebhookUrl || DEFAULT_APPS_SCRIPT_URL;
+
+  if (!webhookUrl) {
+    throw new Error('Google Drive webhook URL not configured. Deploy the Apps Script and paste the URL in Settings.');
   }
 
-  // Fast path if we have a valid cached token
-  if (cachedSaToken && Date.now() < cachedSaTokenExpiry) {
-    return cachedSaToken;
+  // Convert blob to base64
+  const arrayBuffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  // Process in chunks to avoid call stack overflow on large files
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
   }
+  const base64 = btoa(binary);
 
-  const { client_email, private_key, token_uri } = credentials;
-  if (!client_email || !private_key) {
-    throw new Error('Missing client_email or private_key in Service Account JSON');
-  }
+  const payload = {
+    filename,
+    file: base64,
+    mimeType: blob.type || 'audio/wav',
+  };
 
-  // Import the PKCS8 private key using jose
-  const privateKey = await importPKCS8(private_key, 'RS256');
-
-  // Sign a JWT
-  const jwt = await new SignJWT({
-    iss: client_email,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    aud: token_uri || 'https://oauth2.googleapis.com/token',
-  })
-    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
-    .setIssuedAt()
-    .setExpirationTime('1h')
-    .sign(privateKey);
-
-  // Exchange JWT for an access token
-  const response = await fetch(token_uri || 'https://oauth2.googleapis.com/token', {
+  const response = await fetch(webhookUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    redirect: 'follow', // Apps Script redirects on POST
   });
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Failed to obtain access token: ${response.status} ${errorBody}`);
+    throw new Error(`Drive upload failed: ${response.status} ${response.statusText}`);
   }
 
   const data = await response.json();
-  
-  cachedSaToken = data.access_token;
-  // Cache for 55 minutes to be safe
-  cachedSaTokenExpiry = Date.now() + 55 * 60 * 1000;
-  
-  return data.access_token;
-}
 
-export async function uploadToDrive(blob: Blob, filename: string): Promise<string> {
-  const settings = getSettings();
-  const serviceAccountStr = settings.serviceAccountJson || import.meta.env.VITE_SERVICE_ACCOUNT_JSON;
-  
-  let accessToken = '';
-
-  if (serviceAccountStr) {
-    accessToken = await getServiceAccountToken(serviceAccountStr);
-  } else if (settings.driveConnected && settings.driveToken) {
-    accessToken = settings.driveToken;
-  } else {
-    throw new Error('Google Drive not connected (No Service Account or OAuth Token)');
+  if (!data.success) {
+    throw new Error(`Drive upload failed: ${data.error || 'Unknown error'}`);
   }
 
-  const metadata: Record<string, any> = {
-    name: filename,
-    mimeType: blob.type || 'audio/mp3',
-  };
-
-  if (settings.driveFolderId) {
-    metadata.parents = [settings.driveFolderId];
-  }
-
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('file', blob);
-
-  const response = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: form,
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Drive upload failed: ${response.status} ${err}`);
-  }
-
-  const data = await response.json();
-  return data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
+  return data.url || `https://drive.google.com/file/d/${data.fileId}/view`;
 }

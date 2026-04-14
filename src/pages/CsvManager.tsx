@@ -87,12 +87,17 @@ export default function CsvManager() {
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
+    
+    // Added a loading toast to show immediate progress
+    const toastId = toast.loading('Processing CSV file(s)...');
+    
     Array.from(files).forEach(file => {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
         dynamicTyping: true,
         complete: (results) => {
+          toast.dismiss(toastId);
           if (results.data.length === 0) {
             toast.error('CSV file is empty');
             return;
@@ -103,7 +108,10 @@ export default function CsvManager() {
           setMappings(autoDetectMappings(cols));
           setShowMapper(true);
         },
-        error: () => toast.error('Failed to parse CSV'),
+        error: () => {
+          toast.dismiss(toastId);
+          toast.error('Failed to parse CSV');
+        },
       });
     });
   }, []);

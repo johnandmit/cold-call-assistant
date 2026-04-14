@@ -57,6 +57,7 @@ export interface Settings {
   confirmBeforeDelete: boolean;
   activeCampaignId: string;
   serviceAccountJson: string;
+  driveWebhookUrl: string;
 }
 
 export interface QueueFilterState {
@@ -128,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confirmBeforeDelete: false,
   activeCampaignId: '',
   serviceAccountJson: '',
+  driveWebhookUrl: '',
 };
 
 // Campaigns
