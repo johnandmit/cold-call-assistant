@@ -194,6 +194,11 @@ export function getSettings(): Settings {
     if (parsed.serviceAccountJson || import.meta.env.VITE_SERVICE_ACCOUNT_JSON) {
       parsed.driveConnected = true;
     }
+
+    // Force default drive folder if none is set
+    if (!parsed.driveFolderId) {
+      parsed.driveFolderId = '1XBCndWW87aMn3awjocvE8tOtdyGhjw9X';
+    }
     
     return parsed;
   } catch { return DEFAULT_SETTINGS; }
