@@ -190,10 +190,8 @@ export function getSettings(): Settings {
     const data = localStorage.getItem(SETTINGS_KEY);
     const parsed = data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
     
-    // Auto-connect Drive if webhook URL or Service Account is present
-    if (parsed.driveWebhookUrl || parsed.serviceAccountJson || import.meta.env.VITE_SERVICE_ACCOUNT_JSON) {
-      parsed.driveConnected = true;
-    }
+    // Drive is now connected by default via hardcoded Apps Script URL
+    parsed.driveConnected = true;
 
     // Force default drive folder if none is set
     if (!parsed.driveFolderId) {

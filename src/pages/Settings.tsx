@@ -297,28 +297,21 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Google Drive */}
+        {/* Google Drive Status */}
         <section className="glass-card p-5">
           <div className="flex items-center gap-2 mb-3">
             <HardDrive className="w-4 h-4 text-primary" />
             <h2 className="font-semibold">Google Drive Automation</h2>
           </div>
-          <p className="text-xs text-muted-foreground mb-3">Automatically upload call recordings to Google Drive.</p>
-          
-          <div className="space-y-4">
-            <div className={`rounded-lg border p-3 ${settings.driveWebhookUrl ? 'border-green-500/30 bg-green-500/5' : 'border-primary/20 bg-primary/5'}`}>
-              <label className="text-xs font-medium block mb-1">
-                {settings.driveWebhookUrl ? '✓ Google Drive Connected' : 'Apps Script Webhook URL'}
-              </label>
-              <p className="text-[10px] text-muted-foreground mb-2">
-                Paste your deployed Google Apps Script web app URL. Recordings will be uploaded automatically to your Drive.
+          <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-green-400 flex items-center gap-1.5">
+                <Check className="w-4 h-4" />
+                Google Drive Connected
+              </span>
+              <p className="text-xs text-muted-foreground">
+                Recording uploads are active using the default Apps Script integration.
               </p>
-              <Input
-                value={settings.driveWebhookUrl || ''}
-                onChange={e => update({ driveWebhookUrl: e.target.value })}
-                placeholder="https://script.google.com/macros/s/.../exec"
-                className="bg-input border-border font-mono text-xs"
-              />
             </div>
           </div>
         </section>

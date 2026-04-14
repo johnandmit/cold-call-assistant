@@ -5,7 +5,7 @@ import { getSettings } from '@/lib/storage';
  * Set this after deploying the Google Apps Script as a Web App.
  * The URL looks like: https://script.google.com/macros/s/XXXXXXXXX/exec
  */
-const DEFAULT_APPS_SCRIPT_URL = '';
+const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwqfijZGTeBYMo91lYzyJcZlwem2hoAZqIPp97rybOf-v3IbAdKeS44Cu61UhNLiGQoKg/exec';
 
 /**
  * Upload an audio blob to Google Drive via a Google Apps Script web app.
