@@ -26,6 +26,9 @@ export function downloadCsv() {
     not_interested: c.not_interested ? 'yes' : 'no',
     hidden_from_queue: c.hidden_from_queue ? 'yes' : 'no',
     call_recording_drive_url: c.call_recording_drive_url || '',
+    last_called_at: c.last_called_at || '',
+    assigned_user_email: c.assigned_user_email || '',
+    assigned_user_name: c.assigned_user_name || '',
   }));
 
   const csv = Papa.unparse(exportData);

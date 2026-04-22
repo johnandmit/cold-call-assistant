@@ -1,6 +1,14 @@
 import { Session } from '@/types';
 import { v4 } from '@/lib/uuid';
 import { getActiveCampaignId } from '@/lib/storage';
+import { pushSessions } from '@/lib/supabase-sync';
+
+import { supabase } from '@/lib/supabase';
+
+async function getUserId(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id || '';
+}
 
 function getSessionsKey(campaignId?: string): string {
   const cid = campaignId || getActiveCampaignId();
@@ -33,31 +41,21 @@ export function isContactSuppressed(id: string): boolean {
   return getSuppressedIds().has(id);
 }
 
-// Skipped contacts — daily reset
-const SKIP_DATE_KEY = 'sales-assistant-skip-date';
-
-function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function getSkippedIds(): Set<string> {
   try {
-    const dateStr = localStorage.getItem(SKIP_DATE_KEY);
-    if (dateStr !== getToday()) {
-      localStorage.removeItem(SKIPPED_KEY);
-      localStorage.setItem(SKIP_DATE_KEY, getToday());
-      return new Set();
-    }
-    const data = localStorage.getItem(SKIPPED_KEY);
+    const data = sessionStorage.getItem(SKIPPED_KEY);
     return data ? new Set(JSON.parse(data)) : new Set();
   } catch { return new Set(); }
 }
 
 export function skipContact(id: string) {
-  localStorage.setItem(SKIP_DATE_KEY, getToday());
   const set = getSkippedIds();
   set.add(id);
-  localStorage.setItem(SKIPPED_KEY, JSON.stringify([...set]));
+  sessionStorage.setItem(SKIPPED_KEY, JSON.stringify([...set]));
+}
+
+export function clearSkipped() {
+  sessionStorage.removeItem(SKIPPED_KEY);
 }
 
 // Named Sessions (campaign-scoped)
@@ -69,7 +67,14 @@ export function getSessions(campaignId?: string): Session[] {
 }
 
 export function saveSessions(sessions: Session[], campaignId?: string) {
-  localStorage.setItem(getSessionsKey(campaignId), JSON.stringify(sessions));
+  const cid = campaignId || getActiveCampaignId();
+  localStorage.setItem(getSessionsKey(cid), JSON.stringify(sessions));
+  
+  getUserId().then(uid => {
+    if (uid && cid) {
+      pushSessions(uid, cid, sessions).catch(() => {});
+    }
+  });
 }
 
 function formatSessionName(date: Date): string {
@@ -82,7 +87,8 @@ function formatSessionName(date: Date): string {
   return `${day}${suffix} of ${month}, ${time}`;
 }
 
-export function startSession(campaignId?: string): Session {
+export async function startSession(campaignId?: string): Promise<Session> {
+  const { data: { session: authSession } } = await supabase.auth.getSession();
   const now = new Date();
   const session: Session = {
     id: v4(),
@@ -91,6 +97,8 @@ export function startSession(campaignId?: string): Session {
     endedAt: '',
     callsMade: 0,
     outcomes: {},
+    userId: authSession?.user?.id || '',
+    userEmail: authSession?.user?.email || '',
   };
   const sessions = getSessions(campaignId);
   sessions.push(session);
@@ -106,10 +114,10 @@ export function getActiveSession(campaignId?: string): Session | null {
   return sessions.find(s => s.id === id) || null;
 }
 
-export function getOrCreateActiveSession(campaignId?: string): Session {
+export async function getOrCreateActiveSession(campaignId?: string): Promise<Session> {
   const existing = getActiveSession(campaignId);
   if (existing) return existing;
-  return startSession(campaignId);
+  return await startSession(campaignId);
 }
 
 export function endActiveSession(campaignId?: string) {
@@ -122,12 +130,13 @@ export function endActiveSession(campaignId?: string) {
     saveSessions(sessions, campaignId);
   }
   localStorage.removeItem(ACTIVE_SESSION_KEY);
-  // Clear session-level suppressions so 'no answer' contacts reappear
+  // Clear session-level skips and suppressions
+  clearSkipped();
   clearSuppressed();
 }
 
-export function recordCallOutcome(outcome: string, campaignId?: string) {
-  const session = getOrCreateActiveSession(campaignId);
+export async function recordCallOutcome(outcome: string, campaignId?: string) {
+  const session = await getOrCreateActiveSession(campaignId);
   if (outcome !== 'no_answer' && outcome !== 'phone_not_working') {
     session.callsMade++;
   }

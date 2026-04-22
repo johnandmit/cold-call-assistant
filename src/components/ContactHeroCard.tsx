@@ -2,6 +2,9 @@ import { Contact } from '@/types';
 import { Star, MapPin, Globe, Phone, ExternalLink, Copy, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
+import { updateContact } from '@/lib/storage';
+import { useState, useEffect } from 'react';
 
 interface Props {
   contact: Contact;
@@ -9,6 +12,43 @@ interface Props {
 }
 
 export default function ContactHeroCard({ contact, onStartCall }: Props) {
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setCurrentUserId(session.user.id);
+    });
+  }, []);
+
+  if (!contact) {
+    return (
+      <div className="glass-card p-8 flex flex-col items-center justify-center text-center gap-3 animate-fade-in">
+        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+          <User className="w-6 h-6 text-muted-foreground" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="font-semibold text-foreground">No leads available</h3>
+          <p className="text-sm text-muted-foreground max-w-[240px]">
+            Try clearing your filters or importing a new CSV to get started.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const isOwnedByOther = contact.assigned_user_id && contact.assigned_user_id !== currentUserId;
+  const isOwnedByMe = contact.assigned_user_id && contact.assigned_user_id === currentUserId;
+
+  const handleRelease = () => {
+    if (!window.confirm('Release this lead? This will allow other team members to call it.')) return;
+    updateContact(contact.id, {
+      assigned_user_id: undefined,
+      assigned_user_email: undefined,
+      assigned_user_name: undefined
+    });
+    toast.success('Lead released to team');
+  };
+
   const tierClass = contact.outreach_tier === 1 ? 'badge-tier1' : contact.outreach_tier === 2 ? 'badge-tier2' : 'badge-tier3';
   const tierLabel = `Tier ${contact.outreach_tier}${contact.outreach_tier === 1 ? ' 🔥' : ''}`;
   const urgencyColor = contact.average_urgency === 'High' ? 'text-destructive' : contact.average_urgency === 'Medium' ? 'text-warning' : 'text-muted-foreground';
@@ -100,8 +140,35 @@ export default function ContactHeroCard({ contact, onStartCall }: Props) {
         </div>
       )}
 
-      <Button onClick={onStartCall} className="w-full mt-4 bg-success hover:bg-success/90 text-success-foreground font-semibold h-12 text-base rounded-lg">
-        Start Call
+      {isOwnedByOther && (
+        <div className="bg-muted/50 border border-border/50 rounded-lg p-3 my-4 flex items-center gap-3">
+          <Clock className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">
+            Claimed by <span className="font-semibold text-foreground">{contact.assigned_user_name || contact.assigned_user_email}</span>
+          </span>
+        </div>
+      )}
+
+      {isOwnedByMe && (
+        <Button 
+          variant="outline" 
+          onClick={handleRelease}
+          className="w-full mt-4 border-primary/30 text-primary hover:bg-primary/5 h-12 text-base rounded-lg"
+        >
+          Release Lead to Team
+        </Button>
+      )}
+
+      <Button 
+        onClick={onStartCall} 
+        disabled={isOwnedByOther}
+        className={`w-full mt-2 font-semibold h-12 text-base rounded-lg ${
+          isOwnedByOther 
+            ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+            : 'bg-success hover:bg-success/90 text-success-foreground'
+        }`}
+      >
+        {isOwnedByOther ? 'Lead Owned by Teammate' : 'Start Call'}
       </Button>
     </div>
   );

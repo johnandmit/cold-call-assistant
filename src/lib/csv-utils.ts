@@ -25,12 +25,16 @@ const FIELD_ALIASES: Record<TargetField, string[]> = {
   not_interested: ['notinterested', 'declined', 'rejected'],
   hidden_from_queue: ['hiddenfromqueue', 'hidden', 'removed', 'softremoved'],
   call_recording_drive_url: ['callrecordingdriveurl', 'recordingurl', 'audiourl', 'audiorecording', 'recording', 'driveurl', 'recordinglink', 'audiolink'],
+  last_called_at: ['lastcalledat', 'lastcalled', 'lastcontacted'],
+  assigned_user_id: ['assigneduserid', 'ownerid', 'assignedtoid', 'userid'],
+  assigned_user_email: ['assigneduseremail', 'owneremail', 'assignedtoemail', 'useremail'],
+  assigned_user_name: ['assignedusername', 'ownername', 'assignedtoname', 'username', 'owner'],
 };
 
 // Only auto-detect with HIGH confidence (exact or very close match)
 export function autoDetectMappings(csvColumns: string[]): ColumnMapping[] {
   return TARGET_FIELDS.map(field => {
-    const aliases = FIELD_ALIASES[field];
+    const aliases = FIELD_ALIASES[field] || [];
     const match = csvColumns.find(col => {
       const norm = normalize(col);
       // Only exact alias matches — no fuzzy includes

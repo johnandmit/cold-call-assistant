@@ -5,14 +5,16 @@ import { getContacts, saveContacts, getSettings, getCampaigns, getActiveCampaign
 import { autoDetectMappings, mapRowToContact, parseCalled } from '@/lib/csv-utils';
 import { checkCrossCampaignDuplicates, CrossCampaignMatch } from '@/lib/cross-campaign-check';
 import { downloadCsv } from '@/lib/csv-export';
+import { joinCampaign } from '@/lib/supabase-sync';
 import { getTodayHours } from '@/lib/hours-utils';
 import { v4 } from '@/lib/uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp, Copy, ExternalLink, CornerUpRight, UserMinus } from 'lucide-react';
-import { Campaign } from '@/types';
+import { Upload, FileSpreadsheet, Download, Search, X, Check, AlertTriangle, Edit3, Trash2, Clock, Shield, ChevronDown, ChevronUp, Copy, ExternalLink, UserMinus, Activity } from 'lucide-react';
+import { Campaign, CampaignMember } from '@/types';
 import { toast } from 'sonner';
+import { fetchCampaignMembers, supabase } from '@/lib/supabase-sync';
 
 const CSV_PAGE_SIZE = 50;
 
@@ -58,11 +60,18 @@ export default function CsvManager() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showCrossCheck, setShowCrossCheck] = useState(false);
   const [crossCheckCampaigns, setCrossCheckCampaigns] = useState<Set<string>>(new Set());
+
+  // Sharing & Joining Campaign
+  const [joinCode, setJoinCode] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
   const [crossCheckResults, setCrossCheckResults] = useState<CrossCampaignMatch[]>([]);
   const [selectedMatches, setSelectedMatches] = useState<Set<number>>(new Set());
   const [allCampaigns, setAllCampaigns] = useState<Campaign[]>([]);
   const [activeCampaignId, setActiveCampaignIdState] = useState('');
   const [csvVisibleCount, setCsvVisibleCount] = useState(CSV_PAGE_SIZE);
+  const [teamMembers, setTeamMembers] = useState<CampaignMember[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showDistributor, setShowDistributor] = useState(false);
 
   // Delete key support
   useEffect(() => {
@@ -82,21 +91,28 @@ export default function CsvManager() {
   useEffect(() => {
     ensureCampaigns();
     setAllCampaigns(getCampaigns());
-    setActiveCampaignIdState(getActiveCampaignId());
+    const campId = getActiveCampaignId();
+    setActiveCampaignIdState(campId);
+
+    if (campId) {
+      fetchCampaignMembers(campId).then(setTeamMembers);
+    }
+    supabase.auth.getUser().then(({ data: { user } }) => setCurrentUser(user));
   }, []);
 
   const handleFiles = useCallback((files: FileList | null) => {
-    if (!files) return;
+    if (!files || files.length === 0) return;
     
-    // Added a loading toast to show immediate progress
+    const fileArray = Array.from(files);
     const toastId = toast.loading('Processing CSV file(s)...');
     
-    Array.from(files).forEach(file => {
+    fileArray.forEach(file => {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
         dynamicTyping: true,
         complete: (results) => {
+          if (fileRef.current) fileRef.current.value = ''; // Reset after parse
           toast.dismiss(toastId);
           if (results.data.length === 0) {
             toast.error('CSV file is empty');
@@ -109,6 +125,7 @@ export default function CsvManager() {
           setShowMapper(true);
         },
         error: () => {
+          if (fileRef.current) fileRef.current.value = ''; // Reset on error
           toast.dismiss(toastId);
           toast.error('Failed to parse CSV');
         },
@@ -125,129 +142,186 @@ export default function CsvManager() {
     setMappings(prev => prev.map(m => m.targetField === targetField ? { ...m, csvColumn, autoDetected: false } : m));
   };
 
+
   const confirmMapping = () => {
-    const nameMapped = mappings.find(m => m.targetField === 'name')?.csvColumn;
-    const phoneMapped = mappings.find(m => m.targetField === 'phone')?.csvColumn;
-    if (!nameMapped || !phoneMapped) {
-      toast.error('Name and Phone fields are required');
-      return;
-    }
-
-    const existing = getContacts();
-    const newContacts: Contact[] = csvData.map(row => {
-      const mapped = mapRowToContact(row, mappings);
-      const calledMapping = mappings.find(m => m.targetField === 'called');
-      const calledRaw = calledMapping?.csvColumn ? row[calledMapping.csvColumn] : undefined;
-      const notInterestedMapping = mappings.find(m => m.targetField === 'not_interested');
-      const notInterestedRaw = notInterestedMapping?.csvColumn ? row[notInterestedMapping.csvColumn] : undefined;
-      return {
-        id: v4(),
-        name: String(mapped.name || ''),
-        phone: String(mapped.phone || ''),
-        address: String(mapped.address || ''),
-        website: String(mapped.website || ''),
-        google_maps_url: String(mapped.google_maps_url || ''),
-        rating: Number(mapped.rating) || 0,
-        review_count: Number(mapped.review_count) || 0,
-        conversion_confidence_score: Number(mapped.conversion_confidence_score) || 0,
-        outreach_tier: Number(mapped.outreach_tier) || 3,
-        average_urgency: (['High', 'Medium', 'Low'].includes(String(mapped.average_urgency)) ? String(mapped.average_urgency) : '') as any,
-        opening_hours: String(mapped.opening_hours || ''),
-        notes: String(mapped.notes || ''),
-        called: parseCalled(calledRaw),
-        call_date: String(mapped.call_date || ''),
-        call_recording_drive_url: String(mapped.call_recording_drive_url || ''),
-        not_interested: parseCalled(notInterestedRaw),
-        follow_up_date: String(mapped.follow_up_date || ''),
-        call_outcome: String(mapped.call_outcome || ''),
-        suppressed_until: '',
-        category: String(mapped.category || ''),
-        hidden_from_queue: (() => {
-          const hiddenMapping = mappings.find(m => m.targetField === 'hidden_from_queue');
-          const hiddenRaw = hiddenMapping?.csvColumn ? row[hiddenMapping.csvColumn] : undefined;
-          return parseCalled(hiddenRaw);
-        })(),
-      };
-    }).filter(c => c.name && c.phone);
-
-    const hasMeaningfulData = (c: Contact) => {
-      return (c.notes?.trim().length > 0) || 
-             c.called || 
-             (c.call_outcome?.trim().length > 0) || 
-             c.not_interested || 
-             (c.follow_up_date?.trim().length > 0);
-    };
-
-    const isIdentical = (a: Contact, b: Contact) => {
-      const keys = Object.keys(a) as (keyof Contact)[];
-      for (const k of keys) {
-        if (k === 'id') continue;
-        if (a[k] !== b[k]) return false;
+    try {
+      const nameMapped = mappings.find(m => m.targetField === 'name')?.csvColumn;
+      const phoneMapped = mappings.find(m => m.targetField === 'phone')?.csvColumn;
+      if (!nameMapped || !phoneMapped) {
+        toast.error('Name and Phone fields are required');
+        return;
       }
-      return true;
-    };
 
-    const normalizePhone = (p: string) => p.replace(/\D/g, '');
+      const existing = getContacts();
+      const normalizePhone = (p: string) => p.replace(/\D/g, '');
 
-    const phoneGroups = new Map<string, Contact[]>();
-    for (const c of [...existing, ...newContacts]) {
-      const p = normalizePhone(c.phone);
-      if (!p) continue;
-      if (!phoneGroups.has(p)) phoneGroups.set(p, []);
-      phoneGroups.get(p)!.push(c);
-    }
-
-    const autoResolved: Contact[] = [];
-    const pendingConflicts: Contact[][] = [];
-    let dupeCount = 0;
-
-    for (const group of phoneGroups.values()) {
-      if (group.length === 1) {
-        autoResolved.push(group[0]);
-        continue;
-      }
+      // --- Optimized Cross-Campaign Auto-Hydration ---
+      // Pre-build a lookup table for all existing leads in other campaigns to avoid O(N^2) loops
+      const allCampaigns = getCampaigns();
+      const globalPhoneMap = new Map<string, { contact: Contact; campaignName: string }>();
       
-      dupeCount += group.length - 1;
+      for (const campaign of allCampaigns) {
+        if (campaign.id === activeCampaignId) continue;
+        const otherContacts = getContacts(campaign.id);
+        for (const other of otherContacts) {
+          const otherPhone = normalizePhone(other.phone);
+          if (otherPhone && otherPhone.length >= 5) {
+            globalPhoneMap.set(otherPhone, { contact: other, campaignName: campaign.name });
+          }
+        }
+      }
 
-      // Group has multiple contacts. Let's find unique variants based on meaningful data
-      const dataContacts = group.filter(hasMeaningfulData);
+      const newContacts: Contact[] = csvData.map(row => {
+        const mapped = mapRowToContact(row, mappings);
+        const calledMapping = mappings.find(m => m.targetField === 'called');
+        const calledRaw = calledMapping?.csvColumn ? row[calledMapping.csvColumn] : undefined;
+        const notInterestedMapping = mappings.find(m => m.targetField === 'not_interested');
+        const notInterestedRaw = notInterestedMapping?.csvColumn ? row[notInterestedMapping.csvColumn] : undefined;
+        
+        const newContact: Contact = {
+          id: v4(),
+          name: String(mapped.name || ''),
+          phone: String(mapped.phone || ''),
+          address: String(mapped.address || ''),
+          website: String(mapped.website || ''),
+          google_maps_url: String(mapped.google_maps_url || ''),
+          rating: Number(mapped.rating) || 0,
+          review_count: Number(mapped.review_count) || 0,
+          conversion_confidence_score: Number(mapped.conversion_confidence_score) || 0,
+          outreach_tier: Number(mapped.outreach_tier) || 3,
+          average_urgency: (['High', 'Medium', 'Low'].includes(String(mapped.average_urgency)) ? String(mapped.average_urgency) : '') as any,
+          opening_hours: String(mapped.opening_hours || ''),
+          notes: String(mapped.notes || ''),
+          called: parseCalled(calledRaw),
+          call_date: String(mapped.call_date || ''),
+          call_recording_drive_url: String(mapped.call_recording_drive_url || ''),
+          not_interested: parseCalled(notInterestedRaw),
+          follow_up_date: String(mapped.follow_up_date || ''),
+          call_outcome: String(mapped.call_outcome || ''),
+          suppressed_until: '',
+          category: String(mapped.category || ''),
+          hidden_from_queue: (() => {
+            const hiddenMapping = mappings.find(m => m.targetField === 'hidden_from_queue');
+            const hiddenRaw = hiddenMapping?.csvColumn ? row[hiddenMapping.csvColumn] : undefined;
+            return parseCalled(hiddenRaw);
+          })(),
+          assigned_user_id: mapped.assigned_user_id ? String(mapped.assigned_user_id) : undefined,
+          assigned_user_name: mapped.assigned_user_name ? String(mapped.assigned_user_name) : undefined,
+          assigned_user_email: mapped.assigned_user_email ? String(mapped.assigned_user_email) : undefined,
+          last_called_at: String(mapped.last_called_at || ''),
+        };
 
-      if (dataContacts.length === 0) {
-        // No variant has notes/data, just keep the first one (prefer existing if it was first)
-        autoResolved.push(group[0]);
-      } else if (dataContacts.length === 1) {
-        // Only one variant has notes/data, keep it!
-        autoResolved.push(dataContacts[0]);
-      } else {
-        // Multiple variants have meaningful data. Deduplicate exact identical variants.
-        const uniqueVariants: Contact[] = [];
-        for (const dc of dataContacts) {
-          if (!uniqueVariants.some(v => isIdentical(v, dc))) {
-            uniqueVariants.push(dc);
+        // Hydrate from global map if phone exists elsewhere
+        const match = globalPhoneMap.get(normalizePhone(newContact.phone));
+        if (match) {
+          newContact.called = newContact.called || match.contact.called;
+          newContact.not_interested = newContact.not_interested || match.contact.not_interested;
+          newContact.hidden_from_queue = newContact.hidden_from_queue || match.contact.hidden_from_queue;
+          if (match.contact.call_outcome && !newContact.call_outcome) newContact.call_outcome = match.contact.call_outcome;
+          if (match.contact.call_date && !newContact.call_date) newContact.call_date = match.contact.call_date;
+          if (match.contact.follow_up_date && !newContact.follow_up_date) newContact.follow_up_date = match.contact.follow_up_date;
+          
+          if (match.contact.notes && !newContact.notes.includes(match.contact.notes.substring(0, 20))) {
+            newContact.notes = [newContact.notes, `--- Linked from ${match.campaignName} ---`, match.contact.notes].filter(Boolean).join('\n');
           }
         }
 
-        if (uniqueVariants.length === 1) {
-          autoResolved.push(uniqueVariants[0]);
-        } else {
-          pendingConflicts.push(uniqueVariants);
+        return newContact;
+      }).filter(c => c.name && c.phone);
+
+      // --- Deduplication: Merge by phone number ---
+      // Build a map of existing contacts by normalized phone
+      const existingByPhone = new Map<string, Contact>();
+      for (const c of existing) {
+        const p = normalizePhone(c.phone);
+        if (p) existingByPhone.set(p, c);
+      }
+
+      // Also deduplicate within the CSV itself (keep first occurrence)
+      const csvByPhone = new Map<string, Contact>();
+      for (const c of newContacts) {
+        const p = normalizePhone(c.phone);
+        if (!p) continue;
+        if (!csvByPhone.has(p)) {
+          csvByPhone.set(p, c);
         }
       }
-    }
 
-    if (pendingConflicts.length > 0) {
-      setConflicts(pendingConflicts);
-      setResolvedContacts(autoResolved);
+      const finalContacts: Contact[] = [];
+      const mergedPhones = new Set<string>();
+      let dupeCount = 0;
+
+      // 1. For each CSV contact, merge into existing or add as new
+      for (const [phone, csvContact] of csvByPhone) {
+        const existingContact = existingByPhone.get(phone);
+
+        if (existingContact) {
+          // MERGE: Keep existing contact's ID and data, fill blanks from CSV
+          dupeCount++;
+          mergedPhones.add(phone);
+          
+          const merged: Contact = {
+            ...existingContact,
+            // Only fill in fields that are empty/default in existing
+            address: existingContact.address || csvContact.address,
+            website: existingContact.website || csvContact.website,
+            google_maps_url: existingContact.google_maps_url || csvContact.google_maps_url,
+            rating: existingContact.rating || csvContact.rating,
+            review_count: existingContact.review_count || csvContact.review_count,
+            conversion_confidence_score: existingContact.conversion_confidence_score || csvContact.conversion_confidence_score,
+            outreach_tier: (existingContact.outreach_tier && existingContact.outreach_tier !== 3) ? existingContact.outreach_tier : csvContact.outreach_tier,
+            average_urgency: (existingContact.average_urgency as string) || (csvContact.average_urgency as string),
+            opening_hours: existingContact.opening_hours || csvContact.opening_hours,
+            category: existingContact.category || csvContact.category,
+            // Always preserve existing call/follow-up data
+            called: existingContact.called || csvContact.called,
+            call_date: existingContact.call_date || csvContact.call_date,
+            call_outcome: existingContact.call_outcome || csvContact.call_outcome,
+            not_interested: existingContact.not_interested || csvContact.not_interested,
+            follow_up_date: existingContact.follow_up_date || csvContact.follow_up_date,
+            hidden_from_queue: existingContact.hidden_from_queue || csvContact.hidden_from_queue,
+            call_recording_drive_url: existingContact.call_recording_drive_url || csvContact.call_recording_drive_url,
+            // Append CSV notes only if they add new info
+            notes: (() => {
+              if (!csvContact.notes) return existingContact.notes;
+              if (!existingContact.notes) return csvContact.notes;
+              // Don't duplicate identical notes
+              if (existingContact.notes.includes(csvContact.notes.substring(0, 30))) return existingContact.notes;
+              return existingContact.notes + '\n--- Updated from CSV ---\n' + csvContact.notes;
+            })(),
+          };
+          finalContacts.push(merged);
+        } else {
+          // Brand new contact
+          finalContacts.push(csvContact);
+        }
+      }
+
+      // 2. Keep any existing contacts that weren't in the CSV
+      for (const [phone, existingContact] of existingByPhone) {
+        if (!mergedPhones.has(phone)) {
+          finalContacts.push(existingContact);
+        }
+      }
+
+      // 3. Keep existing contacts that had empty/invalid phone numbers
+      for (const c of existing) {
+        const p = normalizePhone(c.phone);
+        if (!p && c.name) {
+          finalContacts.push(c);
+        }
+      }
+
+      saveContacts(finalContacts);
+      setContacts(finalContacts);
       setShowMapper(false);
-      return;
+      setCsvData([]);
+
+      toast.success(`Imported ${csvByPhone.size} contacts${dupeCount > 0 ? ` (${dupeCount} merged with existing)` : ''}`);
+    } catch (err: any) {
+      console.error('[CsvManager] confirmMapping failed:', err);
+      toast.error(`Import failed: ${err.message || 'Unknown error'}`);
     }
-
-    saveContacts(autoResolved);
-    setContacts(autoResolved);
-    setShowMapper(false);
-    setCsvData([]);
-
-    toast.success(`Imported/Merged successfully${dupeCount > 0 ? ` (${dupeCount} duplicates auto-resolved)` : ''}`);
   };
 
   const submitResolutions = (finalResolved: Contact[]) => {
@@ -547,6 +621,80 @@ export default function CsvManager() {
     toast.success(`Deleted ${selectedMatches.size} leads from current campaign`);
   };
 
+  const distributeLeads = (userId: string, count: number) => {
+    const unassigned = contacts.filter(c => !c.assigned_user_id && !c.called);
+    if (unassigned.length === 0) {
+      toast.error('No unassigned leads available');
+      return;
+    }
+
+    const member = teamMembers.find(m => m.id === userId);
+    if (!member) return;
+
+    // Shuffle and pick
+    const shuffled = [...unassigned].sort(() => Math.random() - 0.5);
+    const toAssign = shuffled.slice(0, count);
+    const toAssignIds = new Set(toAssign.map(c => c.id));
+
+    const updated = contacts.map(c => {
+      if (toAssignIds.has(c.id)) {
+        return {
+          ...c,
+          assigned_user_id: userId,
+          assigned_user_name: member.display_name || member.email.split('@')[0],
+          assigned_user_email: member.email
+        };
+      }
+      return c;
+    });
+
+    saveContacts(updated);
+    setContacts(updated);
+    toast.success(`Assigned ${toAssign.length} leads to ${member.display_name || member.email}`);
+  };
+
+  const splitLeadsEvenly = () => {
+    const unassigned = contacts.filter(c => !c.assigned_user_id && !c.called);
+    if (unassigned.length === 0) {
+      toast.error('No unassigned and uncalled leads available');
+      return;
+    }
+    if (teamMembers.length === 0) {
+      toast.error('No team members to assign to');
+      return;
+    }
+
+    const shuffled = [...unassigned].sort(() => Math.random() - 0.5);
+    const perPerson = Math.floor(shuffled.length / teamMembers.length);
+    if (perPerson === 0) {
+      toast.error('Not enough leads to split evenly');
+      return;
+    }
+
+    const updated = [...contacts];
+    teamMembers.forEach((member, i) => {
+      const start = i * perPerson;
+      const end = (i === teamMembers.length - 1) ? shuffled.length : (i + 1) * perPerson;
+      const chunk = shuffled.slice(start, end);
+      const chunkIds = new Set(chunk.map(c => c.id));
+
+      for (let j = 0; j < updated.length; j++) {
+        if (chunkIds.has(updated[j].id)) {
+          updated[j] = {
+            ...updated[j],
+            assigned_user_id: member.id,
+            assigned_user_name: member.display_name || member.email.split('@')[0],
+            assigned_user_email: member.email
+          };
+        }
+      }
+    });
+
+    saveContacts(updated);
+    setContacts(updated);
+    toast.success(`Distributed ${shuffled.length} leads between ${teamMembers.length} members`);
+  };
+
   const saveEditedContact = () => {
     if (!editingContact) return;
     const updated = contacts.map(c => c.id === editingContact.id ? editingContact : c);
@@ -591,6 +739,17 @@ export default function CsvManager() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">CSV Manager</h1>
         <div className="flex gap-2">
+          {teamMembers.length > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowDistributor(!showDistributor)} 
+              className={`gap-1.5 ${showDistributor ? 'bg-primary/10 border-primary text-primary' : ''}`}
+            >
+              <Shield className="w-4 h-4" />
+              Manage Assignments
+            </Button>
+          )}
           {contacts.length > 0 && (
             <Button variant="outline" size="sm" onClick={exportCsv} className="gap-1.5">
               <Download className="w-4 h-4" />
@@ -600,7 +759,104 @@ export default function CsvManager() {
         </div>
       </div>
 
-      {/* Drop zone */}
+
+      {/* Lead Distribution Section */}
+      {showDistributor && teamMembers.length > 0 && (
+        <div className="glass-card p-6 mb-6 animate-fade-in">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              Lead Allocation Control
+            </h2>
+            <div className="text-sm font-medium text-muted-foreground">
+              {contacts.filter(c => !c.assigned_user_id && !c.called).length} leads unassigned
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-6">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="h-9 gap-1.5 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary"
+              onClick={splitLeadsEvenly}
+            >
+              <Activity className="w-4 h-4" />
+              Split Remaining Leads Evenly
+            </Button>
+            <p className="text-xs text-muted-foreground flex items-center">
+              Randomly distributes all uncalled, unassigned leads across everyone.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {teamMembers.map(member => {
+              const assignedCount = contacts.filter(c => c.assigned_user_id === member.id).length;
+              return (
+                <div key={member.id} className="p-4 rounded-xl border border-border bg-accent/20 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-sm">{member.display_name || member.email}</div>
+                      <div className="text-[10px] text-muted-foreground">{member.role}</div>
+                    </div>
+                    <div className="badge-tier2 px-2 py-1 text-[10px] rounded-lg">
+                      {assignedCount} Leads
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2 mt-auto">
+                    <Input 
+                      type="number" 
+                      placeholder="Qty" 
+                      className="h-8 w-16 text-xs bg-background"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = parseInt((e.target as HTMLInputElement).value);
+                          if (val > 0) distributeLeads(member.id, val);
+                        }
+                      }}
+                    />
+                    <Button 
+                      size="sm" 
+                      variant="primary" 
+                      className="h-8 flex-1 text-[10px]"
+                      onClick={(e) => {
+                        const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                        const val = parseInt(input.value);
+                        if (val > 0) distributeLeads(member.id, val);
+                      }}
+                    >
+                      Pick Randomly
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="mt-4 flex justify-end">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-xs text-muted-foreground"
+              onClick={() => {
+                if (window.confirm('Clear all assignments? This will make all leads available to everyone.')) {
+                  const updated = contacts.map(c => ({ 
+                    ...c, 
+                    assigned_user_id: undefined,
+                    assigned_user_name: undefined,
+                    assigned_user_email: undefined 
+                  }));
+                  saveContacts(updated);
+                  setContacts(updated);
+                  toast.success('All assignments cleared');
+                }
+              }}
+            >
+              Reset All Assignments
+            </Button>
+          </div>
+        </div>
+      )}
       <div
         onDragOver={e => e.preventDefault()}
         onDrop={handleDrop}
@@ -841,6 +1097,20 @@ export default function CsvManager() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Edit Contact</h2>
               <button onClick={() => setEditingContact(null)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className={`mb-4 text-sm px-3 py-2 rounded-md border flex items-center gap-2 ${editingContact.assigned_user_id ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted text-muted-foreground border-border'}`}>
+              {editingContact.assigned_user_id ? (
+                <>
+                  <Shield className="w-4 h-4" />
+                  <span>Owned by: <strong>{editingContact.assigned_user_name || editingContact.assigned_user_email || 'Teammate'}</strong></span>
+                </>
+              ) : (
+                <>
+                  <UserMinus className="w-4 h-4" />
+                  <span>Unassigned</span>
+                </>
+              )}
             </div>
             <div className="space-y-3">
               {([
@@ -1178,5 +1448,51 @@ function ConflictResolver({ conflicts, onResolve, onCancel }: { conflicts: Conta
         </div>
       </div>
     </div>
+  );
+}
+
+function hasMeaningfulData(c: Contact): boolean {
+  return (
+    (c.notes && c.notes.trim().length > 0) ||
+    c.called ||
+    c.not_interested ||
+    (c.call_outcome && c.call_outcome.trim().length > 0) ||
+    c.follow_up_date !== '' ||
+    c.call_date !== '' ||
+    (c.address && c.address.trim().length > 0) ||
+    (c.website && c.website.trim().length > 0) ||
+    c.rating > 0 ||
+    c.review_count > 0 ||
+    c.conversion_confidence_score > 0 ||
+    c.outreach_tier !== 3 ||
+    c.average_urgency !== '' ||
+    c.opening_hours !== '' ||
+    c.category !== '' ||
+    c.hidden_from_queue === true
+  );
+}
+
+function isIdentical(a: Contact, b: Contact): boolean {
+  return (
+    a.name === b.name &&
+    a.phone === b.phone &&
+    a.address === b.address &&
+    a.website === b.website &&
+    a.google_maps_url === b.google_maps_url &&
+    a.rating === b.rating &&
+    a.review_count === b.review_count &&
+    a.conversion_confidence_score === b.conversion_confidence_score &&
+    a.outreach_tier === b.outreach_tier &&
+    a.average_urgency === b.average_urgency &&
+    a.opening_hours === b.opening_hours &&
+    a.notes === b.notes &&
+    a.called === b.called &&
+    a.call_date === b.call_date &&
+    a.call_recording_drive_url === b.call_recording_drive_url &&
+    a.not_interested === b.not_interested &&
+    a.follow_up_date === b.follow_up_date &&
+    a.call_outcome === b.call_outcome &&
+    a.category === b.category &&
+    a.hidden_from_queue === b.hidden_from_queue
   );
 }

@@ -4,6 +4,7 @@ import GlobalSearch from './GlobalSearch';
 import { useEffect, useState, useCallback } from 'react';
 import { getCampaigns, getActiveCampaignId, ensureCampaigns } from '@/lib/storage';
 import { Campaign } from '@/types';
+import { Crown, Shield } from 'lucide-react';
 
 export default function Layout() {
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
@@ -39,9 +40,18 @@ export default function Layout() {
                   className="w-2.5 h-2.5 rounded-full"
                   style={{ backgroundColor: activeCampaign.color }}
                 />
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="text-xs font-semibold">
                   {activeCampaign.name}
                 </span>
+                {activeCampaign.role === 'owner' ? (
+                  <span className="text-[9px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-bold border border-amber-500/20 flex items-center gap-0.5 ml-2">
+                    <Crown className="w-2 h-2" /> ADMIN
+                  </span>
+                ) : (
+                  <span className="text-[9px] bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded font-bold border border-blue-500/20 flex items-center gap-0.5 ml-2">
+                    <Shield className="w-2 h-2" /> MEMBER
+                  </span>
+                )}
               </>
             )}
           </div>

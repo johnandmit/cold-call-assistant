@@ -4,7 +4,7 @@ import { getSettings } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Check, Copy, Download, CalendarIcon, X, Undo2, PhoneOff, PhoneMissed, Upload, Trash2, Star, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Star, Trash2, PhoneMissed, PhoneOff, Undo2, X, Clock, Upload, ChevronRight, ChevronDown, Phone, MapPin, Globe, FileText, Calendar as CalendarIcon, Check, Copy, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -340,6 +340,7 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <input type="checkbox" checked={actions.has('warm_lead')} onChange={() => toggleAction('warm_lead')} className="accent-primary w-4 h-4" />
             <span className="text-sm font-medium">Mark as Warm Lead</span>
           </label>
+
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('no_action')} onChange={() => toggleAction('no_action')} className="accent-primary w-4 h-4" />

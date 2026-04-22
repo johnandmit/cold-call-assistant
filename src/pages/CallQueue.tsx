@@ -4,8 +4,10 @@ import { Contact, isValidWebsite, QueueFilterState, DEFAULT_QUEUE_FILTERS } from
 import { getContacts, saveContacts, updateContact, getSettings, saveSettings } from '@/lib/storage';
 import { isCurrentlyOpen, isFollowUpDue, getTodayHours, parseAllDayHours, getClosingMinutes } from '@/lib/hours-utils';
 import { isContactSuppressed, getSuppressedIds, skipContact, getSkippedIds, getActiveSession, startSession, endActiveSession } from '@/lib/session';
+import { lockContact, checkLock } from '@/lib/contact-lock';
+import { supabase } from '@/lib/supabase';
 import ContactHeroCard from '@/components/ContactHeroCard';
-import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square, ExternalLink, Headphones, PhoneOff, VolumeX } from 'lucide-react';
+import { FileSpreadsheet, Phone, Globe, Search, Bell, Clock, SlidersHorizontal, Pencil, SkipForward, EyeOff, Trash2, ChevronDown, ChevronUp, Play, Square, ExternalLink, Headphones, PhoneOff, VolumeX, Activity, Lock, User } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -26,6 +28,8 @@ export default function CallQueue() {
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
   const [activeSession, setActiveSessionState] = useState(getActiveSession());
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const hasActiveFilters = JSON.stringify(filters) !== JSON.stringify(DEFAULT_QUEUE_FILTERS);
   const selectedRowRef = React.useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -52,8 +56,15 @@ export default function CallQueue() {
     refreshContacts();
   };
 
-  // Load persisted filters from settings
+  // Load current user and persisted filters from settings
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setCurrentUserId(session.user.id);
+        setCurrentUserName(session.user.user_metadata?.display_name || session.user.email?.split('@')[0]);
+      }
+    });
+
     const settings = getSettings();
     if (settings.queueFilters) {
       setFilters(settings.queueFilters);
@@ -86,21 +97,41 @@ export default function CallQueue() {
     const onFocus = () => refreshContacts();
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onFocus);
+    window.addEventListener('contacts-changed', onFocus);
     return () => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onFocus);
+      window.removeEventListener('contacts-changed', onFocus);
     };
   }, [refreshContacts]);
 
   const followUps = useMemo(() => {
-    return contacts.filter(c => c.follow_up_date && isFollowUpDue(c.follow_up_date));
-  }, [contacts]);
+    return contacts.filter(c => {
+      if (!c.follow_up_date || !isFollowUpDue(c.follow_up_date)) return false;
+      // Only show follow-ups assigned to me, or unassigned ones
+      if (c.assigned_user_id && c.assigned_user_id !== currentUserId) return false;
+      return true;
+    });
+  }, [contacts, currentUserId]);
 
   const suppressedIds = useMemo(() => getSuppressedIds(), [contacts]);
 
   const sortedContacts = useMemo(() => {
-    // Never show not_interested or permanently hidden contacts
-    let filtered = contacts.filter(c => !c.not_interested && !c.hidden_from_queue);
+    // 1. Ownership & Follow-up Filter
+    // - Always show leads I own.
+    // - Hide follow-ups owned by others (Privacy/Conflict prevention).
+    // - Show regular leads owned by others but marked as 'called by'.
+    let filtered = contacts.filter(c => {
+      if (c.not_interested || c.hidden_from_queue) return false;
+      
+      const isOwnedByOther = c.assigned_user_id && c.assigned_user_id !== currentUserId;
+      const isFollowUp = c.follow_up_date && isFollowUpDue(c.follow_up_date);
+      
+      // Strict: Hidden if it's someone else's follow-up
+      if (isFollowUp && isOwnedByOther) return false;
+      
+      return true;
+    });
 
     // When not searching, hide suppressed and skipped contacts from the main queue
     // When searching, keep them visible so the user can find them
@@ -112,13 +143,19 @@ export default function CallQueue() {
     if (search) {
       const s = search.toLowerCase();
       const searchClean = s.replace(/[\s\-\(\)\.]/g, '');
-      filtered = filtered.filter(c => {
-        if (c.name.toLowerCase().includes(s)) return true;
-        const phoneClean = c.phone.replace(/[\s\-\(\)\.]/g, '');
-        if (phoneClean.includes(searchClean)) return true;
-        return false;
-      });
+      filtered = filtered.filter(c => 
+        c.name.toLowerCase().includes(s) || 
+        c.phone.replace(/[\s\-\(\)\.]/g, '').includes(searchClean)
+      );
     }
+
+    // ALWAYS filter out leads that are already handled or owned by teammates
+    filtered = filtered.filter(c => {
+        const isOwnedByOther = c.assigned_user_id && c.assigned_user_id !== currentUserId;
+        const isAlreadyCalled = c.called && !(c.follow_up_date && isFollowUpDue(c.follow_up_date));
+        
+        return !c.hidden_from_queue && !isOwnedByOther && !isAlreadyCalled;
+    });
     if (showOpenOnly) {
       filtered = filtered.filter(c => !c.opening_hours || isCurrentlyOpen(c.opening_hours));
     }
@@ -131,48 +168,89 @@ export default function CallQueue() {
     if (filters.calledStatus === 'yes') filtered = filtered.filter(c => c.called);
     if (filters.calledStatus === 'no') filtered = filtered.filter(c => !c.called);
 
+    // Pre-cache expensive calculations to avoid recalculating per comparison pair
+    const openCache = new Map<string, boolean>();
+    const closingCache = new Map<string, number | null>();
+    const suppressedCache = new Map<string, boolean>();
+    
+    for (const c of filtered) {
+      openCache.set(c.id, c.opening_hours ? isCurrentlyOpen(c.opening_hours) : false);
+      closingCache.set(c.id, c.opening_hours ? getClosingMinutes(c.opening_hours) : null);
+      suppressedCache.set(c.id, isContactSuppressed(c.id) || skippedIds.has(c.id));
+    }
+
     return [...filtered].sort((a, b) => {
-      // Suppressed/skipped contacts sort to the very bottom
-      const aSuppressed = isContactSuppressed(a.id) || skippedIds.has(a.id);
-      const bSuppressed = isContactSuppressed(b.id) || skippedIds.has(b.id);
+      // 1. Suppressed/skipped contacts sort to the very bottom
+      const aSuppressed = suppressedCache.get(a.id)!;
+      const bSuppressed = suppressedCache.get(b.id)!;
       if (aSuppressed !== bSuppressed) return aSuppressed ? 1 : -1;
-      // Follow-ups first
+
+      // 2. Follow-ups first (unless suppressed/skipped)
       const aFollowUp = a.follow_up_date && isFollowUpDue(a.follow_up_date);
       const bFollowUp = b.follow_up_date && isFollowUpDue(b.follow_up_date);
       if (aFollowUp !== bFollowUp) return aFollowUp ? -1 : 1;
-      // Uncalled before called
+
+      // 3. Last Activity: Move contacted leads to the very bottom
+      if (!!a.last_called_at !== !!b.last_called_at) {
+        return a.last_called_at ? 1 : -1;
+      }
+      if (a.last_called_at && b.last_called_at) {
+         return new Date(a.last_called_at).getTime() - new Date(b.last_called_at).getTime();
+      }
+
+      // 4. Uncalled before called
       if (a.called !== b.called) return a.called ? 1 : -1;
-      // Tier ordering
+
+      // 5. Tier ordering
       if ((a.outreach_tier || 99) !== (b.outreach_tier || 99)) return (a.outreach_tier || 99) - (b.outreach_tier || 99);
-      // Open businesses before closed
-      const aOpen = isCurrentlyOpen(a.opening_hours);
-      const bOpen = isCurrentlyOpen(b.opening_hours);
+
+      // 6. Open businesses before closed
+      const aOpen = openCache.get(a.id)!;
+      const bOpen = openCache.get(b.id)!;
       if (aOpen !== bOpen) return aOpen ? -1 : 1;
-      // Among open businesses, prioritize those closing soon
+
+      // 7. Among open businesses, prioritize those closing soon
       if (aOpen && bOpen) {
-        const aClosing = getClosingMinutes(a.opening_hours);
-        const bClosing = getClosingMinutes(b.opening_hours);
+        const aClosing = closingCache.get(a.id);
+        const bClosing = closingCache.get(b.id);
         if (aClosing !== null && bClosing !== null && aClosing !== bClosing) {
-          return aClosing - bClosing; // closing sooner = higher priority
+          return aClosing - bClosing;
         }
       }
-      // Closed at bottom
-      const aClosed = a.opening_hours && !aOpen;
-      const bClosed = b.opening_hours && !bOpen;
-      if (aClosed !== bClosed) return aClosed ? 1 : -1;
+
+      // Default to score
       return (b.conversion_confidence_score || 0) - (a.conversion_confidence_score || 0);
     });
   }, [contacts, search, showOpenOnly, filters, skippedIds, suppressedIds]);
 
   const heroContact = selectedId ? contacts.find(c => c.id === selectedId) || sortedContacts[0] : sortedContacts[0];
 
-  const startCall = () => {
+  const startCall = async () => {
     if (heroContact) {
       if (heroContact.opening_hours && !isCurrentlyOpen(heroContact.opening_hours)) {
         const proceed = window.confirm(`${heroContact.name} appears to be closed right now. Call anyway?`);
         if (!proceed) return;
       }
-      // Lock queue: pass sorted IDs and current index
+      // Check Supabase: is this phone number already being called by someone else?
+      const existingLock = await checkLock(heroContact.phone);
+      if (existingLock) {
+        toast.error(`This lead is already being called by a teammate!`);
+        return;
+      }
+
+      // Final Lead Ownership Check
+      if (heroContact.assigned_user_id && heroContact.assigned_user_id !== currentUserId) {
+         toast.error(`This lead is already owned by ${heroContact.assigned_user_name || 'a teammate'}!`);
+         return;
+      }
+
+      // Atomically lock the phone number in Supabase
+      const lockResult = await lockContact(heroContact.phone);
+      if (!lockResult.success) {
+        toast.error('A teammate just claimed this lead!');
+        return;
+      }
+      // Lock acquired — proceed to call screen
       const queueIds = sortedContacts.map(c => c.id);
       const queueIndex = queueIds.indexOf(heroContact.id);
       navigate('/call', { state: { contact: heroContact, queueIds, queueIndex } });
@@ -414,6 +492,16 @@ export default function CallQueue() {
                     )}
                     {contact.category && (
                       <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded">{contact.category}</span>
+                    )}
+                    {contact.assigned_user_id && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5 border ${
+                        contact.assigned_user_id === currentUserId 
+                          ? 'bg-primary/20 text-primary border-primary/20' 
+                          : 'bg-muted text-muted-foreground border-border'
+                      }`}>
+                        {contact.assigned_user_id === currentUserId ? <User className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5" />}
+                        {contact.assigned_user_id === currentUserId ? 'My Lead' : `called by ${contact.assigned_user_name || 'a teammate'}`}
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3">

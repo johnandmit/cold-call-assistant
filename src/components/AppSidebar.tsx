@@ -1,18 +1,21 @@
 import { NavLink } from 'react-router-dom';
-import { List, FileSpreadsheet, Settings, Zap, BarChart3, FolderKanban } from 'lucide-react';
+import { List, FileSpreadsheet, Settings, Zap, BarChart3, FolderKanban, LogOut, User } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { getCampaigns, getActiveCampaignId, ensureCampaigns } from '@/lib/storage';
 import { Campaign } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
   { to: '/campaigns', icon: FolderKanban, label: 'Campaigns' },
   { to: '/', icon: List, label: 'Queue' },
   { to: '/csv', icon: FileSpreadsheet, label: 'CSV' },
   { to: '/dashboard', icon: BarChart3, label: 'Stats' },
+  { to: '/account', icon: User, label: 'Account' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function AppSidebar() {
+  const { signOut } = useAuth();
   const [activeCampaign, setActiveCampaign] = useState<Campaign | null>(null);
 
   const refresh = useCallback(() => {
@@ -67,6 +70,15 @@ export default function AppSidebar() {
           <span className="text-[9px] font-medium">{item.label}</span>
         </NavLink>
       ))}
+      <div className="flex-1" />
+      <button
+        onClick={() => signOut()}
+        title="Sign Out"
+        className="w-12 h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all mt-auto"
+      >
+        <LogOut className="w-5 h-5 ml-1" />
+        <span className="text-[9px] font-medium">Exit</span>
+      </button>
     </aside>
   );
 }

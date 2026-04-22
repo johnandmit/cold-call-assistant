@@ -5,6 +5,7 @@ import { getSettings, saveSettings, addCall, updateContact, getContacts } from '
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
+import { lockContact, unlockContact, checkLock } from '@/lib/contact-lock';
 import { Phone, X, Mic, Globe, ExternalLink, MapPin, Star, Clock, LogOut, MicOff, AlertTriangle, SkipBack, SkipForward, Bell, FileText, RotateCcw, StickyNote } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import RichTextEditor from '@/components/RichTextEditor';
 import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
 import { convertToMp3 } from '@/lib/mp3-encoder';
+import { supabase } from '@/lib/supabase';
 
 import { toast } from 'sonner';
 
@@ -59,6 +61,25 @@ export default function CallScreen() {
     }, 1000);
     return () => clearInterval(id);
   }, [callActive]);
+
+  // Lock contact on mount, unlock on unmount
+  useEffect(() => {
+    if (!contact) return;
+    // Ensure lock (might already be locked from CallQueue, but this is a safety net)
+    lockContact(contact.phone).catch(() => {});
+
+    // Unlock on browser close/refresh
+    const handleBeforeUnload = () => {
+      unlockContact(contact.phone);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Unlock when navigating away
+      unlockContact(contact.phone);
+    };
+  }, [contact?.phone]);
 
   // Speech Recognition
   useEffect(() => {
@@ -256,65 +277,107 @@ export default function CallScreen() {
     navigate('/');
   }, [navigate]);
 
-  const goToPreviousLead = useCallback(() => {
-    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex > 0) {
+  const goToPreviousLead = useCallback(async () => {
+    if (!queueIds || currentQueueIndex === undefined || currentQueueIndex <= 0) return;
+    
+    const allContacts = getContacts();
+    // Scan backwards through queue for an unlocked lead
+    for (let i = currentQueueIndex - 1; i >= 0; i--) {
+      const candidate = allContacts.find(c => c.id === queueIds[i]);
+      if (!candidate) continue;
+      
+      const lock = await checkLock(candidate.phone);
+      if (lock) {
+        toast.warning(`${candidate.name} is being called by a teammate, skipping...`);
+        continue;
+      }
+      
+      // Lock it before navigating
+      const lockResult = await lockContact(candidate.phone);
+      if (!lockResult.success) {
+        toast.warning(`${candidate.name} was just claimed, skipping...`);
+        continue;
+      }
+      
+      // Found an available lead — navigate
       setCallActive(false);
       try { recognitionRef.current?.stop(); } catch {}
       try { mediaRecorderRef.current?.stop(); } catch {}
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
       
-      const prevIndex = currentQueueIndex - 1;
-      const allContacts = getContacts();
-      const prevContact = allContacts.find(c => c.id === queueIds[prevIndex]);
-      
-      if (prevContact) {
-        navigate('/', { replace: true });
-        setTimeout(() => {
-          navigate('/call', {
-            state: { contact: prevContact, queueIds, queueIndex: prevIndex },
-            replace: true,
-          });
-        }, 50);
-      } else {
-        navigate('/');
-      }
+      navigate('/', { replace: true });
+      setTimeout(() => {
+        navigate('/call', {
+          state: { contact: candidate, queueIds, queueIndex: i },
+          replace: true,
+        });
+      }, 50);
+      return;
     }
+    
+    toast.error('No available leads in that direction');
   }, [queueIds, currentQueueIndex, navigate]);
 
-  const goToNextLead = useCallback(() => {
-    if (queueIds && currentQueueIndex !== undefined && currentQueueIndex < queueIds.length - 1) {
+  const goToNextLead = useCallback(async () => {
+    if (!queueIds || currentQueueIndex === undefined || currentQueueIndex >= queueIds.length - 1) return;
+    
+    const allContacts = getContacts();
+    // Scan forwards through queue for an unlocked lead
+    for (let i = currentQueueIndex + 1; i < queueIds.length; i++) {
+      const candidate = allContacts.find(c => c.id === queueIds[i]);
+      if (!candidate) continue;
+      
+      const lock = await checkLock(candidate.phone);
+      if (lock) {
+        toast.warning(`${candidate.name} is being called by a teammate, skipping...`);
+        continue;
+      }
+      
+      // Lock it before navigating
+      const lockResult = await lockContact(candidate.phone);
+      if (!lockResult.success) {
+        toast.warning(`${candidate.name} was just claimed, skipping...`);
+        continue;
+      }
+      
+      // Found an available lead — navigate
       setCallActive(false);
       try { recognitionRef.current?.stop(); } catch {}
       try { mediaRecorderRef.current?.stop(); } catch {}
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
       
-      const nextIndex = currentQueueIndex + 1;
-      const allContacts = getContacts();
-      const nextContact = allContacts.find(c => c.id === queueIds[nextIndex]);
-      
-      if (nextContact) {
-        navigate('/', { replace: true });
-        setTimeout(() => {
-          navigate('/call', {
-            state: { contact: nextContact, queueIds, queueIndex: nextIndex },
-            replace: true,
-          });
-        }, 50);
-      } else {
-        navigate('/');
-      }
+      navigate('/', { replace: true });
+      setTimeout(() => {
+        navigate('/call', {
+          state: { contact: candidate, queueIds, queueIndex: i },
+          replace: true,
+        });
+      }, 50);
+      return;
     }
+    
+    toast.info('No more leads in queue');
+    setCallActive(false);
+    try { recognitionRef.current?.stop(); } catch {}
+    try { mediaRecorderRef.current?.stop(); } catch {}
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop());
+    navigate('/');
   }, [queueIds, currentQueueIndex, navigate]);
-  const handlePostCallDone = (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
+  const handlePostCallDone = async (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
     // 1. Immediately close the modal to prevent it from sticking
     setShowPostCall(false);
 
     try {
       if (contact) {
-        const session = getOrCreateActiveSession();
+        const session = await getOrCreateActiveSession();
         const callId = v4();
         const now = new Date().toISOString();
         const filename = `${new Date().toISOString().slice(0,10)}-${contact.name.replace(/\s+/g, '')}.wav`;
+
+        // Capture current user to take ownership of the lead
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        const userId = authSession?.user?.id;
+        const userName = authSession?.user?.user_metadata?.display_name || authSession?.user?.email?.split('@')[0];
 
         const isRevert = actions.includes('revert_uncalled');
         const isSuppressed = outcome === 'no_answer' || outcome === 'phone_not_working';
@@ -322,7 +385,7 @@ export default function CallScreen() {
         const isRemoved = actions.includes('remove_from_queue');
 
         if (!isRevert) {
-          addCall({
+          await addCall({
             id: callId,
             contact_id: contact.id,
             contact_name: contact.name,
@@ -340,7 +403,7 @@ export default function CallScreen() {
             category: contact.category || '',
           });
 
-          recordCallOutcome(outcome || 'completed');
+          await recordCallOutcome(outcome || 'completed');
         }
 
         updateContact(contact.id, {
@@ -351,6 +414,9 @@ export default function CallScreen() {
           follow_up_date: followUpDate || '',
           call_outcome: outcome || '',
           hidden_from_queue: isRemoved || outcome === 'phone_not_working' || contact.hidden_from_queue,
+          last_called_at: didPickUp ? now : (contact.last_called_at || ''),
+          assigned_user_id: userId || contact.assigned_user_id,
+          assigned_user_name: userName || contact.assigned_user_name,
         });
 
         // Only session-suppress 'no answer' — phone_not_working is hidden forever above
@@ -405,7 +471,7 @@ export default function CallScreen() {
 
       mediaStreamRef.current?.getTracks().forEach(t => t.stop());
 
-      // Transition to next lead
+      // Transition to next lead — check Supabase locks and skip taken leads
       const allContacts = getContacts();
       const now = new Date();
       const dueFollowUps = allContacts.filter(c =>
@@ -415,10 +481,15 @@ export default function CallScreen() {
         !c.not_interested
       );
 
-      if (dueFollowUps.length > 0) {
-        const dueFollowUp = dueFollowUps[0];
-        const count = dueFollowUps.length;
+      // Check follow-ups first (also check locks)
+      for (const dueFollowUp of dueFollowUps) {
+        const lock = await checkLock(dueFollowUp.phone);
+        if (lock) continue; // teammate has this follow-up
         
+        const lockResult = await lockContact(dueFollowUp.phone);
+        if (!lockResult.success) continue;
+        
+        const count = dueFollowUps.length;
         toast.info(count > 1 ? `${count} Follow-ups due!` : `Follow-up due: ${dueFollowUp.name}`, {
           description: count > 1 ? `Routing to ${dueFollowUp.name} first...` : 'Routing to follow-up contact...',
           duration: 4000,
@@ -434,20 +505,33 @@ export default function CallScreen() {
         return;
       }
 
+      // Scan through queue in the chosen direction, skipping locked leads
       if (queueIds && currentQueueIndex !== undefined) {
-        const targetIndex = direction === 'forward' ? currentQueueIndex + 1 : currentQueueIndex - 1;
-        if (targetIndex >= 0 && targetIndex < queueIds.length) {
-          const targetContact = allContacts.find(c => c.id === queueIds[targetIndex]);
-          if (targetContact) {
-            navigate('/', { replace: true });
-            setTimeout(() => {
-              navigate('/call', {
-                state: { contact: targetContact, queueIds, queueIndex: targetIndex },
-                replace: true,
-              });
-            }, 50);
-            return;
+        const step = direction === 'forward' ? 1 : -1;
+        for (let i = currentQueueIndex + step; i >= 0 && i < queueIds.length; i += step) {
+          const targetContact = allContacts.find(c => c.id === queueIds[i]);
+          if (!targetContact) continue;
+          
+          const lock = await checkLock(targetContact.phone);
+          if (lock) {
+            toast.warning(`${targetContact.name} is being called by a teammate, skipping...`);
+            continue;
           }
+          
+          const lockResult = await lockContact(targetContact.phone);
+          if (!lockResult.success) {
+            toast.warning(`${targetContact.name} was just claimed, skipping...`);
+            continue;
+          }
+          
+          navigate('/', { replace: true });
+          setTimeout(() => {
+            navigate('/call', {
+              state: { contact: targetContact, queueIds, queueIndex: i },
+              replace: true,
+            });
+          }, 50);
+          return;
         }
       }
 

@@ -21,6 +21,10 @@ export interface Contact {
   suppressed_until: string;
   category: string; // niche/category from CSV
   hidden_from_queue?: boolean; // soft-removed: hidden from queue but kept in CSV
+  last_called_at?: string; // ISO date
+  assigned_user_id?: string;
+  assigned_user_email?: string;
+  assigned_user_name?: string;
 }
 
 export interface Call {
@@ -39,6 +43,8 @@ export interface Call {
   call_success?: boolean; // true = success, false = failed, undefined = not set
   session_id: string; // which session this call belongs to
   category: string; // contact's category/niche
+  userId?: string;
+  userEmail?: string;
 }
 
 export interface Settings {
@@ -96,7 +102,8 @@ export const TARGET_FIELDS = [
   'rating', 'review_count', 'conversion_confidence_score',
   'outreach_tier', 'average_urgency', 'opening_hours', 'called', 'category',
   'notes', 'call_outcome', 'follow_up_date', 'call_date', 'not_interested',
-  'hidden_from_queue', 'call_recording_drive_url',
+  'hidden_from_queue', 'call_recording_drive_url', 'last_called_at',
+  'assigned_user_id', 'assigned_user_email', 'assigned_user_name'
 ] as const;
 
 export type TargetField = typeof TARGET_FIELDS[number];
@@ -140,6 +147,33 @@ export interface Campaign {
   name: string;
   createdAt: string;
   color: string; // hex color for visual badge
+  role?: 'owner' | 'member'; // Current user's role in this campaign
+  ownerId?: string; // The ID of the single owner
+  ownerEmail?: string;
+  ownerName?: string;
+  folderId?: string | null;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface Profile {
+  id: string;
+  email: string;
+  display_name?: string;
+  last_active?: string;
+}
+
+export interface CampaignMember extends Profile {
+  role: 'owner' | 'member';
+  joined_at: string;
+  total_calls: number;
+  success_count?: number;
+  avg_rating?: number;
+  outcomes?: Record<string, number>;
 }
 
 // Named sessions
@@ -150,6 +184,8 @@ export interface Session {
   endedAt: string;
   callsMade: number;
   outcomes: Record<string, number>;
+  userId?: string;
+  userEmail?: string;
 }
 
 export interface SessionStats {
