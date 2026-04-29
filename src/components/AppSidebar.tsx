@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { List, FileSpreadsheet, Settings, Zap, BarChart3, FolderKanban, LogOut, User } from 'lucide-react';
+import { List, FileSpreadsheet, Settings, Zap, BarChart3, FolderKanban, LogOut, User, Mail } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { getCampaigns, getActiveCampaignId, ensureCampaigns } from '@/lib/storage';
 import { Campaign } from '@/types';
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/', icon: List, label: 'Queue' },
   { to: '/csv', icon: FileSpreadsheet, label: 'CSV' },
   { to: '/dashboard', icon: BarChart3, label: 'Stats' },
+  { to: '/emails', icon: Mail, label: 'Emails' },
   { to: '/account', icon: User, label: 'Account' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];

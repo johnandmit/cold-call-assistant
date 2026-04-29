@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Contact } from '@/types';
 import { getSettings } from '@/lib/storage';
+import { SenderAccount } from '@/lib/email';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { ThumbsUp, ThumbsDown, Star, Trash2, PhoneMissed, PhoneOff, Undo2, X, Clock, Upload, ChevronRight, ChevronDown, Phone, MapPin, Globe, FileText, Calendar as CalendarIcon, Check, Copy, Download } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Star, Trash2, PhoneMissed, PhoneOff, Undo2, X, Clock, Upload, ChevronRight, ChevronDown, Phone, MapPin, Globe, FileText, Calendar as CalendarIcon, Check, Copy, Download, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
@@ -17,7 +18,7 @@ interface Props {
   recordingBlob: Blob | null;
   duration: number;
   liveNotes?: string;
-  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, uploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward') => void;
+  onDone: (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, uploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction?: 'forward' | 'backward', emailRecipient?: string, emailSender?: SenderAccount, emailRecipientName?: string, emailInclusions?: string) => void;
 }
 
 export default function PostCallModal({ contact, transcript, recordingBlob, duration, liveNotes, onDone }: Props) {
@@ -32,6 +33,11 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
   const [callRating, setCallRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [callSuccess, setCallSuccess] = useState<boolean | null>(null);
+  const [emailRecipient, setEmailRecipient] = useState('');
+  const [emailRecipientName, setEmailRecipientName] = useState(contact.name || '');
+  const [emailSender, setEmailSender] = useState<SenderAccount>('john');
+  const [includeDemo, setIncludeDemo] = useState(false);
+  const [includeBooking, setIncludeBooking] = useState(false);
   
   const isAutoSuccess = callSuccess === true || actions.has('follow_up') || actions.has('send_proposal') || actions.has('warm_lead');
 
@@ -92,7 +98,23 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
       d.setHours(h, m, 0, 0);
       followUpISO = d.toISOString();
     }
-    onDone(notes, Array.from(actions), followUpISO, getOutcome(), saveLocally, uploadToDrive, callRating, callSuccess ?? undefined, direction);
+    let emailInclusions = '';
+    if (includeDemo && includeBooking) {
+      emailInclusions = 'send booking link and demo number';
+    } else if (includeDemo) {
+      emailInclusions = 'send demo number';
+    } else if (includeBooking) {
+      emailInclusions = 'send booking link';
+    }
+
+    onDone(
+      notes, Array.from(actions), followUpISO, getOutcome(),
+      saveLocally, uploadToDrive, callRating, callSuccess ?? undefined, direction,
+      actions.has('queue_email') ? emailRecipient : undefined,
+      actions.has('queue_email') ? emailSender : undefined,
+      actions.has('queue_email') ? emailRecipientName : undefined,
+      actions.has('queue_email') ? emailInclusions : undefined,
+    );
   };
 
   return (
@@ -341,6 +363,69 @@ export default function PostCallModal({ contact, transcript, recordingBlob, dura
             <span className="text-sm font-medium">Mark as Warm Lead</span>
           </label>
 
+          {/* Queue Follow-up Email */}
+          <div className="glass-card p-3 transition-colors">
+            <label className="flex items-start gap-3 cursor-pointer hover:text-primary transition-colors">
+              <input type="checkbox" checked={actions.has('queue_email')} onChange={() => toggleAction('queue_email')} className="mt-0.5 accent-primary w-4 h-4" />
+              <div className="flex-1">
+                <div className="flex items-center gap-1.5">
+                  <Mail className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-medium">Queue Follow-up Email</span>
+                </div>
+              </div>
+            </label>
+            {actions.has('queue_email') && (
+              <div className="mt-3 ml-7 space-y-3 animate-fade-in">
+                <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Recipient Name</label>
+                    <Input
+                      type="text"
+                      value={emailRecipientName}
+                      onChange={e => setEmailRecipientName(e.target.value)}
+                      placeholder="John Doe"
+                      className="h-8 text-xs bg-input border-border"
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Recipient Email</label>
+                    <Input
+                      type="email"
+                      value={emailRecipient}
+                      onChange={e => setEmailRecipient(e.target.value)}
+                      placeholder="client@example.com"
+                      className="h-8 text-xs bg-input border-border"
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Send From Account</label>
+                    <select
+                      value={emailSender}
+                      onChange={e => setEmailSender(e.target.value as SenderAccount)}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full h-8 rounded-md border border-border bg-input px-2 text-xs"
+                    >
+                      <option value="john">John</option>
+                      <option value="silva">Silva</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-2 block">Include in Email</label>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={includeDemo} onChange={e => setIncludeDemo(e.target.checked)} className="accent-primary w-3.5 h-3.5" />
+                        <span className="text-xs">Demo Number</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={includeBooking} onChange={e => setIncludeBooking(e.target.checked)} className="accent-primary w-3.5 h-3.5" />
+                        <span className="text-xs">Booking Link</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+            )}
+          </div>
 
           <label className="flex items-center gap-3 glass-card p-3 cursor-pointer hover:border-primary/30 transition-colors">
             <input type="checkbox" checked={actions.has('no_action')} onChange={() => toggleAction('no_action')} className="accent-primary w-4 h-4" />

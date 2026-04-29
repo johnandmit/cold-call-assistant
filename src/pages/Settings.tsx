@@ -223,6 +223,22 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* AI Email System Prompt */}
+        <section className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <FileText className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">AI Email System Prompt</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            This prompt is sent to your webhook whenever you queue a follow-up email. You can edit the exact instructions the AI uses to draft your emails here.
+          </p>
+          <Textarea
+            value={settings.emailSystemPrompt || ''}
+            onChange={e => update({ emailSystemPrompt: e.target.value })}
+            placeholder="You are an AI assistant writing a follow-up email..."
+            className="min-h-[300px] bg-input border-border font-mono text-xs"
+          />
+        </section>
         {/* Suggestion Rate */}
         <section className="glass-card p-5">
           <div className="flex items-center justify-between mb-3">

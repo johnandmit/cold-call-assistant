@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Contact, SuggestionCard as SuggestionCardType, isValidWebsite } from '@/types';
-import { getSettings, saveSettings, addCall, updateContact, getContacts } from '@/lib/storage';
+import { getSettings, saveSettings, addCall, updateContact, getContacts, getActiveCampaignId, getCampaigns } from '@/lib/storage';
 import { uploadToDrive } from '@/lib/drive';
 import { fetchSuggestions } from '@/lib/gemini';
 import { suppressContact, recordCallOutcome, getOrCreateActiveSession } from '@/lib/session';
@@ -16,6 +16,8 @@ import { v4 } from '@/lib/uuid';
 import { getTodayHours } from '@/lib/hours-utils';
 import { convertToMp3 } from '@/lib/mp3-encoder';
 import { supabase } from '@/lib/supabase';
+import { queueEmailForReview, SenderAccount } from '@/lib/email';
+
 
 import { toast } from 'sonner';
 
@@ -363,7 +365,7 @@ export default function CallScreen() {
     mediaStreamRef.current?.getTracks().forEach(t => t.stop());
     navigate('/');
   }, [queueIds, currentQueueIndex, navigate]);
-  const handlePostCallDone = async (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward') => {
+  const handlePostCallDone = async (notes: string, actions: string[], followUpDate?: string, outcome?: string, saveLocally?: boolean, shouldUploadToDrive?: boolean, callRating?: number, callSuccess?: boolean, direction: 'forward' | 'backward' = 'forward', emailRecipient?: string, emailSender?: SenderAccount, emailRecipientName?: string, emailInclusions?: string) => {
     // 1. Immediately close the modal to prevent it from sticking
     setShowPostCall(false);
 
@@ -422,6 +424,36 @@ export default function CallScreen() {
         // Only session-suppress 'no answer' — phone_not_working is hidden forever above
         if (outcome === 'no_answer') {
           suppressContact(contact.id);
+        }
+
+        // Queue follow-up email via n8n webhook (fire-and-forget)
+        if (actions.includes('queue_email') && contact) {
+          const campaignId = getActiveCampaignId();
+          const campaigns = getCampaigns();
+          const campaign = campaigns.find(c => c.id === campaignId);
+
+          toast.promise(
+            queueEmailForReview({
+              contactId: contact.id,
+              contactName: emailRecipientName || contact.name,
+              contactPhone: contact.phone,
+              contactEmail: emailRecipient || 'placeholder@example.com',
+              contactWebsite: contact.website || '',
+              contactAddress: contact.address || '',
+              senderAccount: emailSender || 'john',
+              callNotes: notes || liveNotes || 'No notes taken.',
+              callOutcome: outcome || 'completed',
+              callDate: now,
+              campaignId: campaignId,
+              campaignName: campaign?.name || 'Default',
+              inclusions: emailInclusions,
+            }),
+            {
+              loading: 'Generating follow-up email...',
+              success: 'Email queued for review! Check the Emails page.',
+              error: (err) => `Email generation failed: ${err.message}`,
+            },
+          );
         }
       }
 

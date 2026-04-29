@@ -434,6 +434,26 @@ export default function CsvManager() {
     toast.success(`Updated ${selectedIds.size} contacts`);
   };
 
+  const bulkAssignLeads = (userId?: string) => {
+    let member = userId ? teamMembers.find(m => m.id === userId) : undefined;
+    const updated = contacts.map(c => {
+      if (selectedIds.has(c.id)) {
+        return {
+          ...c,
+          assigned_user_id: member?.id,
+          assigned_user_name: member ? (member.display_name || member.email.split('@')[0]) : undefined,
+          assigned_user_email: member?.email
+        };
+      }
+      return c;
+    });
+    saveContacts(updated);
+    setContacts(updated);
+    setSelectedIds(new Set());
+    toast.success(`Updated assignments for ${selectedIds.size} leads`);
+  };
+
+
   const deleteContact = (id: string) => {
     const settings = getSettings();
     if (settings.confirmBeforeDelete && !window.confirm('Delete this contact?')) return;
@@ -1099,17 +1119,40 @@ export default function CsvManager() {
               <button onClick={() => setEditingContact(null)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className={`mb-4 text-sm px-3 py-2 rounded-md border flex items-center gap-2 ${editingContact.assigned_user_id ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted text-muted-foreground border-border'}`}>
-              {editingContact.assigned_user_id ? (
-                <>
-                  <Shield className="w-4 h-4" />
-                  <span>Owned by: <strong>{editingContact.assigned_user_name || editingContact.assigned_user_email || 'Teammate'}</strong></span>
-                </>
-              ) : (
-                <>
-                  <UserMinus className="w-4 h-4" />
-                  <span>Unassigned</span>
-                </>
+            <div className={`mb-4 text-sm px-3 py-2 rounded-md border flex items-center justify-between ${editingContact.assigned_user_id ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted text-muted-foreground border-border'}`}>
+              <div className="flex items-center gap-2">
+                {editingContact.assigned_user_id ? (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    <span>Owned by: <strong>{editingContact.assigned_user_name || editingContact.assigned_user_email || 'Teammate'}</strong></span>
+                  </>
+                ) : (
+                  <>
+                    <UserMinus className="w-4 h-4" />
+                    <span>Unassigned</span>
+                  </>
+                )}
+              </div>
+              {teamMembers.length > 0 && (
+                <select
+                  className="h-7 text-xs rounded border border-border bg-background px-2 text-foreground"
+                  value={editingContact.assigned_user_id || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const member = val ? teamMembers.find(m => m.id === val) : undefined;
+                    setEditingContact({
+                      ...editingContact,
+                      assigned_user_id: member?.id,
+                      assigned_user_name: member ? (member.display_name || member.email.split('@')[0]) : undefined,
+                      assigned_user_email: member?.email
+                    });
+                  }}
+                >
+                  <option value="">Unassigned</option>
+                  {teamMembers.map(m => (
+                    <option key={m.id} value={m.id}>{m.display_name || m.email}</option>
+                  ))}
+                </select>
               )}
             </div>
             <div className="space-y-3">
@@ -1278,6 +1321,28 @@ export default function CsvManager() {
                 Delete
               </Button>
               <span className="text-xs text-muted-foreground ml-1">Press Delete key</span>
+              
+              {teamMembers.length > 0 && (
+                <div className="flex items-center gap-2 ml-4">
+                  <select 
+                    className="h-7 text-xs rounded border border-border bg-input px-2"
+                    onChange={(e) => {
+                       const val = e.target.value;
+                       if (val === '') return;
+                       if (val === 'unassign') bulkAssignLeads(undefined);
+                       else bulkAssignLeads(val);
+                       e.target.value = ''; // reset
+                    }}
+                  >
+                    <option value="">Assign selected to...</option>
+                    <option value="unassign">Unassigned (Release)</option>
+                    {teamMembers.map(m => (
+                      <option key={m.id} value={m.id}>{m.display_name || m.email}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} className="text-xs h-7 ml-auto">Clear</Button>
             </div>
           )}

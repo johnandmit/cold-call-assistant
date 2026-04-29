@@ -17,6 +17,7 @@ import Campaigns from "@/pages/Campaigns";
 import Account from "@/pages/Account";
 import Auth from "@/pages/Auth";
 import NotFound from "./pages/NotFound";
+import EmailReview from "@/pages/EmailReview";
 import { supabase } from "@/lib/supabase";
 
 const queryClient = new QueryClient();
@@ -133,6 +134,7 @@ const App = () => (
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/campaigns" element={<Campaigns />} />
+              <Route path="/emails" element={<EmailReview />} />
               <Route path="/account" element={<Account />} />
             </Route>
             <Route path="/call" element={<ProtectedRoute><CallScreen /></ProtectedRoute>} />

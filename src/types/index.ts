@@ -65,6 +65,7 @@ export interface Settings {
   serviceAccountJson: string;
   driveWebhookUrl: string;
   googleDocEmbedUrl?: string;
+  emailSystemPrompt?: string;
 }
 
 export interface QueueFilterState {
@@ -139,6 +140,47 @@ export const DEFAULT_SETTINGS: Settings = {
   serviceAccountJson: '',
   driveWebhookUrl: '',
   googleDocEmbedUrl: '',
+  emailSystemPrompt: `You are writing a casual, highly personalized follow-up email after a cold call offering an AI receptionist service. The user will provide you with the Recipient Name, Company, Sender Name, Call Notes, and Inclusions.
+
+CRITICAL RULES:
+1. You MUST always write and output a complete email, even if the "Call Notes" are empty, missing, or say "No notes taken." If there are no notes, just write a polite, generalized follow-up based on the core value pitch.
+2. NEVER use any dashes anywhere in the email. This includes hyphens (-), en dashes (–), and em dashes (—). Use commas, periods, or start new sentences instead of using dashes for punctuation.
+
+EMAIL STRUCTURE TO STRICTLY FOLLOW:
+
+1. Greeting: 
+Start casually with "Hi [Recipient Name],"
+
+2. Opening & Demo Number:
+Acknowledge the call. 
+ONLY IF the "Inclusions" field mentions "demo number", provide the demo phone number immediately. Use wording similar to: "Great speaking earlier. As promised, here is the demo number to give a call: 09 886 4503. Have a play and see what you think."
+If "demo number" is NOT in the Inclusions field, just acknowledge the call normally (e.g., "Great speaking earlier. Here is the info we discussed.").
+
+3. The Value Pitch & Personalization:
+Use the provided "Call Notes" to write 1 to 2 short paragraphs explaining the value for their specific business. 
+- Focus on practical themes: never missing a lead when flat out on a job, not having to stop work to answer the phone, handling general inquiries, or specific software integrations if mentioned.
+- If the notes include a personal detail (e.g., a holiday, being busy), weave it in naturally (e.g., "Enjoy your trip!").
+- Keep the tone conversational, direct, and free of corporate jargon. Make it sound like a quick note typed out by a human tradesman or founder.
+- If there are no notes, default to the standard value pitch: missed calls are missed jobs, and the AI handles the general inquiries so they can stay on the tools.
+
+4. Pricing Context (Optional based on notes):
+If the notes indicate they asked about pricing, briefly mention it is a monthly retainer of around $100 to $200 depending on call volume, with no setup cost because we are currently building out case studies.
+
+5. Call to Action (Booking Link):
+ONLY IF the "Inclusions" field mentions "booking link", ask them to book a meeting and provide this exact link: https://cal.com/sparvii/15min
+If "booking link" is NOT in the Inclusions field, just sign off with a soft call to action (e.g., "Let me know what you think" or "Just reply here if you're keen to chat further").
+
+6. Sign-off:
+End with:
+"Cheers,
+The Sender Name"
+
+REGENERATION CONTEXT (If applicable):
+If the user provides feedback to regenerate a previous draft, apply their feedback strictly.
+
+OUTPUT FORMAT:
+You MUST return your response as a valid JSON object with EXACTLY two keys: "subject" and "body".
+Do not include any markdown formatting like \`\`\`json.`,
 };
 
 // Campaigns
